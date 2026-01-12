@@ -48,9 +48,10 @@
 #define GROUP_MARKER_END		")"
 #define GROUP_HIERARCHY_SEP		"/"
 
-// Unicode prefix characters (UTF-8)
-#define PREFIX_FOLDED			"\xE2\x96\xB6 "	// ▶ 
-#define PREFIX_UNFOLDED			"\xE2\x96\xBC "	// ▼ 
+// Unicode prefix characters (UTF-8) - same as GM FoldLayers
+// ▸ (U+25B8) = folded, ▾ (U+25BE) = unfolded
+#define PREFIX_FOLDED			"\xE2\x96\xB8 "	// ▸ (small right-pointing triangle)
+#define PREFIX_UNFOLDED			"\xE2\x96\xBE "	// ▾ (small down-pointing triangle) 
 
 // Structure for group info
 typedef struct {

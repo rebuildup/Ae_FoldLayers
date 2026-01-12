@@ -5,16 +5,12 @@
 /*      Developer: 361do_plugins                                   */
 /*      https://github.com/rebuildup                               */
 /*                                                                 */
-/*      Menu Items:                                                */
-/*      - Create Group Divider                                     */
-/*      - Fold Group                                               */
-/*      - Unfold Group                                             */
-/*      - Fold/Unfold (toggle)                                     */
-/*                                                                 */
-/*      Implementation based on GM FoldLayers analysis:            */
+/*      Based on GM FoldLayers analysis:                           */
 /*      - Uses shape layer (no path) as divider                    */
-/*      - Shape layer has no source, so double-click doesn't open  */
-/*      - Label set to NONE                                        */
+/*      - Divider is set to VIDEO_OFF (invisible)                  */
+/*      - Uses ▸ (folded) and ▾ (unfolded) characters              */
+/*      - Uses ThreadpoolTimer for selection monitoring            */
+/*        (we use AEGP IdleHook instead for cross-platform)        */
 /*                                                                 */
 /*******************************************************************/
 
@@ -30,12 +26,13 @@ static AEGP_Command		S_cmd_fold				= 0;
 static AEGP_Command		S_cmd_unfold			= 0;
 static AEGP_Command		S_cmd_fold_unfold		= 0;
 
-// Double-click detection using layer index
-static A_long			S_last_layer_index		= -1;
-static A_long			S_last_comp_id			= 0;
-static A_long			S_last_selection_tick	= 0;
+// Double-click detection state
+static A_long			S_tracked_layer_index	= -1;
+static A_long			S_tracked_comp_id		= 0;
+static A_long			S_selection_start_tick	= 0;
 static A_long			S_idle_counter			= 0;
-static const A_long		DOUBLE_CLICK_TICKS		= 15;
+static bool				S_selection_ended		= false;
+static const A_long		RESELECT_WINDOW			= 30;  // ticks to detect reselection
 
 //=============================================================================
 // Helper Functions
@@ -47,7 +44,8 @@ static bool IsDividerLayer(const std::string& name)
 		unsigned char c0 = (unsigned char)name[0];
 		unsigned char c1 = (unsigned char)name[1];
 		unsigned char c2 = (unsigned char)name[2];
-		if (c0 == 0xE2 && c1 == 0x96 && (c2 == 0xB6 || c2 == 0xBC)) {
+		// ▸ = E2 96 B8, ▾ = E2 96 BE
+		if (c0 == 0xE2 && c1 == 0x96 && (c2 == 0xB8 || c2 == 0xBE)) {
 			return true;
 		}
 	}
@@ -60,7 +58,8 @@ static bool IsDividerFolded(const std::string& name)
 		unsigned char c0 = (unsigned char)name[0];
 		unsigned char c1 = (unsigned char)name[1];
 		unsigned char c2 = (unsigned char)name[2];
-		if (c0 == 0xE2 && c1 == 0x96 && c2 == 0xB6) {
+		// ▸ = E2 96 B8 (folded)
+		if (c0 == 0xE2 && c1 == 0x96 && c2 == 0xB8) {
 			return true;
 		}
 	}
@@ -271,12 +270,11 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
 	
 	// Create SHAPE layer (vector layer) - like GM FoldLayers
-	// Shape layers have no source, so double-click doesn't open anything!
 	AEGP_LayerH newLayer = NULL;
 	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
 	
 	if (!err && newLayer) {
-		// Set layer name with expanded prefix (▼ = unfolded state)
+		// Set layer name with expanded prefix (▾ = unfolded state)
 		std::string dividerName = BuildDividerName(false, "Group Divider");
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
 		
@@ -285,10 +283,10 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, insertIndex));
 		}
 		
-		// Set label to NONE (0)
-		ERR(suites.LayerSuite9()->AEGP_SetLayerLabel(newLayer, AEGP_Label_NONE));
+		// Set VIDEO OFF (invisible) - like GM FoldLayers
+		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_VIDEO_ACTIVE, FALSE));
 		
-		// Set as guide layer so it doesn't render
+		// Set as guide layer so it doesn't render even if visible
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_GUIDE_LAYER, TRUE));
 	}
 	
@@ -428,7 +426,8 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 }
 
 //=============================================================================
-// Idle Hook - Double-click detection
+// Idle Hook - Double-click detection via selection state changes
+// GM FoldLayers uses ThreadpoolTimer, we use IdleHook for cross-platform
 //=============================================================================
 
 static A_Err IdleHook(
@@ -473,40 +472,56 @@ static A_Err IdleHook(
 					ERR(GetLayerNameStr(suites, currentLayer, name));
 					
 					if (!err && IsDividerLayer(name)) {
-						A_long elapsed = S_idle_counter - S_last_selection_tick;
-						
-						if (currentIndex == S_last_layer_index && 
-						    compId == S_last_comp_id &&
-						    elapsed < DOUBLE_CLICK_TICKS && 
-						    elapsed > 2) {
+						// Check if this is a reselection of same divider after deselection
+						if (S_selection_ended && 
+						    currentIndex == S_tracked_layer_index && 
+						    compId == S_tracked_comp_id) {
 							
-							bool isFolded = IsDividerFolded(name);
-							ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
-							ERR(FoldDivider(suites, compH, currentLayer, currentIndex, !isFolded));
-							ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+							A_long elapsed = S_idle_counter - S_selection_start_tick;
+							if (elapsed < RESELECT_WINDOW) {
+								// This is a double-click! Toggle fold state
+								bool isFolded = IsDividerFolded(name);
+								ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+								ERR(FoldDivider(suites, compH, currentLayer, currentIndex, !isFolded));
+								ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+							}
 							
-							S_last_layer_index = -1;
-							S_last_selection_tick = 0;
-						} else if (currentIndex != S_last_layer_index || compId != S_last_comp_id) {
-							S_last_layer_index = currentIndex;
-							S_last_comp_id = compId;
-							S_last_selection_tick = S_idle_counter;
+							// Reset
+							S_selection_ended = false;
+							S_tracked_layer_index = -1;
 						}
+						
+						// Track this selection
+						S_tracked_layer_index = currentIndex;
+						S_tracked_comp_id = compId;
+						S_selection_start_tick = S_idle_counter;
+						S_selection_ended = false;
 					} else {
-						S_last_layer_index = -1;
+						// Not a divider - reset
+						S_tracked_layer_index = -1;
+						S_selection_ended = false;
 					}
 				}
+			} else if (numSelected == 0) {
+				// Selection ended - mark it
+				if (S_tracked_layer_index >= 0) {
+					S_selection_ended = true;
+					S_selection_start_tick = S_idle_counter;
+				}
 			} else {
-				S_last_layer_index = -1;
+				// Multiple selection - reset
+				S_tracked_layer_index = -1;
+				S_selection_ended = false;
 			}
 			
 			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		}
 	} else {
-		S_last_layer_index = -1;
+		S_tracked_layer_index = -1;
+		S_selection_ended = false;
 	}
 	
-	*max_sleepPL = 50;
+	*max_sleepPL = 50;  // Check frequently for responsive double-click
 	return A_Err_NONE;
 }
 
@@ -582,10 +597,11 @@ A_Err EntryPointFunc(
 	sP = pica_basicP;
 	S_my_id = aegp_plugin_id;
 	
-	S_last_layer_index = -1;
-	S_last_comp_id = 0;
-	S_last_selection_tick = 0;
+	S_tracked_layer_index = -1;
+	S_tracked_comp_id = 0;
+	S_selection_start_tick = 0;
 	S_idle_counter = 0;
+	S_selection_ended = false;
 	
 	AEGP_SuiteHandler suites(sP);
 	
