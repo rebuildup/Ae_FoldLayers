@@ -51,49 +51,56 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	A_Err err = A_Err_NONE;
 	bool hasIdentity = false;
 	
-	// Get root stream
+	// Get root stream - Use latest StreamSuite (v4 or v5)
 	AEGP_StreamRefH rootStreamH = NULL;
-	ERR(suites.StreamSuite2()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
+	ERR(suites.StreamSuite()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
 	
 	if (!err && rootStreamH) {
-		// Shape layers have "ADBE Root Vectors Group"
-		// We look for "FoldGroupData" inside it, or just anywhere in the root properties maybe?
-		// Actually, let's look for a specific named group at the top level or inside Contents.
-		
+		// Use latest DynamicStreamSuite (v4)
 		A_long numStreams = 0;
-		ERR(suites.DynamicStreamSuite2()->AEGP_GetNumStreams(rootStreamH, &numStreams));
+		ERR(suites.DynamicStreamSuite()->AEGP_GetNumStreams(rootStreamH, &numStreams));
 		
 		for (A_long i = 0; i < numStreams && !err && !hasIdentity; i++) {
 			AEGP_StreamRefH childStreamH = NULL;
-			ERR(suites.DynamicStreamSuite2()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childStreamH));
+			ERR(suites.DynamicStreamSuite()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childStreamH));
 			if (!err && childStreamH) {
 				AEGP_StreamGroupingType groupType;
-				ERR(suites.DynamicStreamSuite2()->AEGP_GetStreamGroupingType(childStreamH, &groupType));
+				ERR(suites.DynamicStreamSuite()->AEGP_GetStreamGroupingType(childStreamH, &groupType));
 				
 				if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
 					// Check name
 					AEGP_MemHandle nameH = NULL;
-					ERR(suites.StreamSuite2()->AEGP_GetStreamName(childStreamH, FALSE, &nameH)); // FALSE = distinct name
+					ERR(suites.StreamSuite()->AEGP_GetStreamName(childStreamH, FALSE, &nameH)); // FALSE = distinct name
 					if (!err && nameH) {
 						A_char nameBuf[256] = {'\0'};
-						ERR(suites.MemorySuite1()->AEGP_GetMemHandleSize(nameH, NULL)); // Check size?
-						void* dataP = NULL;
-						ERR(suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP));
-						if (dataP) {
-							// Copy safely
-							strncpy_s(nameBuf, (const char*)dataP, 255);
-							if (std::string(nameBuf) == "FoldGroupData") {
-								hasIdentity = true;
+						AEGP_MemSize size = 0;
+						ERR(suites.MemorySuite1()->AEGP_GetMemHandleSize(nameH, &size));
+						
+						if (!err && size > 0) {
+							void* dataP = NULL;
+							ERR(suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP));
+							if (dataP) {
+								// Safe copy
+								size_t copyLen = (size_t)size < 255 ? (size_t)size : 255;
+								memcpy(nameBuf, dataP, copyLen);
+								nameBuf[copyLen] = '\0'; // Ensure null term
+								
+								// Clean up unicode null bytes if needed (often getName returns UTF16 or char*, check SDK)
+								// Usually GetStreamName returns a string.
+								// If it is just ASCII "FoldGroupData", it matches.
+								if (std::string(nameBuf) == "FoldGroupData") {
+									hasIdentity = true;
+								}
 							}
+							suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
 						}
-						suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
 						suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
 					}
 				}
-				suites.StreamSuite2()->AEGP_DisposeStream(childStreamH);
+				suites.StreamSuite()->AEGP_DisposeStream(childStreamH);
 			}
 		}
-		suites.StreamSuite2()->AEGP_DisposeStream(rootStreamH);
+		suites.StreamSuite()->AEGP_DisposeStream(rootStreamH);
 	}
 	
 	return hasIdentity;
@@ -106,26 +113,34 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	if (!layerH) return A_Err_STRUCT;
 	
 	AEGP_StreamRefH rootStreamH = NULL;
-	ERR(suites.StreamSuite2()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
+	ERR(suites.StreamSuite()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
 	
 	if (!err && rootStreamH) {
 		// Find "ADBE Root Vectors Group" (Contents)
 		AEGP_StreamRefH contentsStreamH = NULL;
 		A_long numStreams = 0;
-		ERR(suites.DynamicStreamSuite2()->AEGP_GetNumStreams(rootStreamH, &numStreams));
+		ERR(suites.DynamicStreamSuite()->AEGP_GetNumStreams(rootStreamH, &numStreams));
 		
 		for (A_long i = 0; i < numStreams && !err; i++) {
 			AEGP_StreamRefH childH = NULL;
-			ERR(suites.DynamicStreamSuite2()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childH));
+			ERR(suites.DynamicStreamSuite()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childH));
 			if (!err && childH) {
 				// Check match name for Contents
 				AEGP_MemHandle matchNameH = NULL;
-				ERR(suites.StreamSuite2()->AEGP_GetStreamMatchName(childH, &matchNameH)); // Get match name
+				ERR(suites.StreamSuite()->AEGP_GetStreamMatchName(childH, &matchNameH)); // Get match name
 				if (!err && matchNameH) {
 					A_char matchName[256] = {'\0'};
 					void* dataP = NULL;
+					AEGP_MemSize size = 0;
+					ERR(suites.MemorySuite1()->AEGP_GetMemHandleSize(matchNameH, &size));
 					ERR(suites.MemorySuite1()->AEGP_LockMemHandle(matchNameH, &dataP));
-					if (dataP) strncpy_s(matchName, (const char*)dataP, 255);
+					
+					if (dataP && size > 0) {
+						size_t copyLen = (size_t)size < 255 ? (size_t)size : 255;
+						memcpy(matchName, dataP, copyLen);
+						matchName[copyLen] = '\0';
+					}
+					
 					suites.MemorySuite1()->AEGP_UnlockMemHandle(matchNameH);
 					suites.MemorySuite1()->AEGP_FreeMemHandle(matchNameH);
 					
@@ -136,7 +151,7 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 				}
 				
 				if (contentsStreamH != childH) {
-					suites.StreamSuite2()->AEGP_DisposeStream(childH);
+					suites.StreamSuite()->AEGP_DisposeStream(childH);
 				}
 			}
 		}
@@ -144,17 +159,17 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 		if (contentsStreamH) {
 			// Add new group "ADBE Vector Group"
 			AEGP_StreamRefH newGroupH = NULL;
-			ERR(suites.DynamicStreamSuite2()->AEGP_AddStream(contentsStreamH, "ADBE Vector Group", &newGroupH));
+			ERR(suites.DynamicStreamSuite()->AEGP_AddStream(contentsStreamH, "ADBE Vector Group", &newGroupH));
 			
 			if (!err && newGroupH) {
 				// Rename it to "FoldGroupData"
-				ERR(suites.StreamSuite2()->AEGP_SetStreamName(newGroupH, "FoldGroupData"));
-				suites.StreamSuite2()->AEGP_DisposeStream(newGroupH);
+				ERR(suites.StreamSuite()->AEGP_SetStreamName(newGroupH, "FoldGroupData"));
+				suites.StreamSuite()->AEGP_DisposeStream(newGroupH);
 			}
-			suites.StreamSuite2()->AEGP_DisposeStream(contentsStreamH);
+			suites.StreamSuite()->AEGP_DisposeStream(contentsStreamH);
 		}
 		
-		suites.StreamSuite2()->AEGP_DisposeStream(rootStreamH);
+		suites.StreamSuite()->AEGP_DisposeStream(rootStreamH);
 	}
 	return err;
 }
@@ -249,21 +264,8 @@ static std::string GetDividerName(const std::string& fullName)
 	return fullName.substr(pos);
 }
 
-// Build full name with prefix and optional hierarchy
-static std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
-{
-	std::string result = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
-	if (!hierarchy.empty()) {
-		result += "(";
-		result += hierarchy;
-		result += ") ";
-	}
-	result += name;
-	return result;
-}
-
 //=============================================================================
-// Layer Name Utilities
+// Layer Name Utilities (Forward Declarations / Moved Implementation)
 //=============================================================================
 
 static A_Err GetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std::string& name)
@@ -338,6 +340,24 @@ static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, cons
 	
 	return err;
 }
+
+static std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
+{
+	std::string result = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
+	if (!hierarchy.empty()) {
+		result += "(";
+		result += hierarchy;
+		result += ") ";
+	}
+	result += name;
+	return result;
+}
+
+//=============================================================================
+// Layer Name Utilities
+//=============================================================================
+
+// (Moved above)
 
 //=============================================================================
 // Core Functionality
