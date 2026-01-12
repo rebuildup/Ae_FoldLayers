@@ -11,6 +11,11 @@
 /*      - Unfold Group                                             */
 /*      - Fold/Unfold (toggle)                                     */
 /*                                                                 */
+/*      Implementation based on GM FoldLayers analysis:            */
+/*      - Uses shape layer (no path) as divider                    */
+/*      - Shape layer has no source, so double-click doesn't open  */
+/*      - Label set to NONE                                        */
+/*                                                                 */
 /*******************************************************************/
 
 #include "FoldLayers.h"
@@ -25,12 +30,12 @@ static AEGP_Command		S_cmd_fold				= 0;
 static AEGP_Command		S_cmd_unfold			= 0;
 static AEGP_Command		S_cmd_fold_unfold		= 0;
 
-// Double-click detection using layer index (more reliable than handle comparison)
+// Double-click detection using layer index
 static A_long			S_last_layer_index		= -1;
 static A_long			S_last_comp_id			= 0;
 static A_long			S_last_selection_tick	= 0;
 static A_long			S_idle_counter			= 0;
-static const A_long		DOUBLE_CLICK_TICKS		= 15;  // ~250ms at 60fps
+static const A_long		DOUBLE_CLICK_TICKS		= 15;
 
 //=============================================================================
 // Helper Functions
@@ -152,29 +157,6 @@ static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, cons
 	return err;
 }
 
-static void StringToUTF16(const std::string& str, std::vector<A_UTF16Char>& utf16)
-{
-	const unsigned char* p = (const unsigned char*)str.c_str();
-	
-	while (*p) {
-		if (*p < 0x80) {
-			utf16.push_back(*p++);
-		} else if ((*p & 0xE0) == 0xC0) {
-			A_UTF16Char c = (*p++ & 0x1F) << 6;
-			if (*p) c |= (*p++ & 0x3F);
-			utf16.push_back(c);
-		} else if ((*p & 0xF0) == 0xE0) {
-			A_UTF16Char c = (*p++ & 0x0F) << 12;
-			if (*p) c |= (*p++ & 0x3F) << 6;
-			if (*p) c |= (*p++ & 0x3F);
-			utf16.push_back(c);
-		} else {
-			p++;
-		}
-	}
-	utf16.push_back(0);
-}
-
 //=============================================================================
 // Core Functionality
 //=============================================================================
@@ -288,24 +270,23 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
 	
-	// Create name for divider (unfolded state = ▼)
-	std::string dividerName = BuildDividerName(false, "Group Divider");
-	std::vector<A_UTF16Char> nameUTF16;
-	StringToUTF16(dividerName, nameUTF16);
-	
+	// Create SHAPE layer (vector layer) - like GM FoldLayers
+	// Shape layers have no source, so double-click doesn't open anything!
 	AEGP_LayerH newLayer = NULL;
-	ERR(suites.CompSuite11()->AEGP_CreateNullInComp(
-		nameUTF16.data(),
-		compH,
-		NULL,
-		&newLayer
-	));
+	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
 	
 	if (!err && newLayer) {
+		// Set layer name with expanded prefix (▼ = unfolded state)
+		std::string dividerName = BuildDividerName(false, "Group Divider");
+		ERR(SetLayerNameStr(suites, newLayer, dividerName));
+		
 		// Move to insert position
 		if (insertIndex > 0) {
 			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, insertIndex));
 		}
+		
+		// Set label to NONE (0)
+		ERR(suites.LayerSuite9()->AEGP_SetLayerLabel(newLayer, AEGP_Label_NONE));
 		
 		// Set as guide layer so it doesn't render
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_GUIDE_LAYER, TRUE));
@@ -447,7 +428,7 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 }
 
 //=============================================================================
-// Idle Hook - Double-click detection using layer index
+// Idle Hook - Double-click detection
 //=============================================================================
 
 static A_Err IdleHook(
@@ -465,7 +446,6 @@ static A_Err IdleHook(
 	ERR(GetActiveComp(suites, &compH));
 	
 	if (!err && compH) {
-		// Get a comp ID (use item ID)
 		AEGP_ItemH compItemH = NULL;
 		A_long compId = 0;
 		ERR(suites.CompSuite11()->AEGP_GetItemFromComp(compH, &compItemH));
@@ -495,33 +475,28 @@ static A_Err IdleHook(
 					if (!err && IsDividerLayer(name)) {
 						A_long elapsed = S_idle_counter - S_last_selection_tick;
 						
-						// Check if same layer selected again quickly (double-click)
 						if (currentIndex == S_last_layer_index && 
 						    compId == S_last_comp_id &&
 						    elapsed < DOUBLE_CLICK_TICKS && 
-						    elapsed > 2) {  // Minimum gap to avoid continuous triggers
+						    elapsed > 2) {
 							
 							bool isFolded = IsDividerFolded(name);
 							ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
 							ERR(FoldDivider(suites, compH, currentLayer, currentIndex, !isFolded));
 							ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
 							
-							// Reset to prevent multiple triggers
 							S_last_layer_index = -1;
 							S_last_selection_tick = 0;
 						} else if (currentIndex != S_last_layer_index || compId != S_last_comp_id) {
-							// New selection - start tracking
 							S_last_layer_index = currentIndex;
 							S_last_comp_id = compId;
 							S_last_selection_tick = S_idle_counter;
 						}
 					} else {
-						// Not a divider
 						S_last_layer_index = -1;
 					}
 				}
 			} else {
-				// Multiple or no selection
 				S_last_layer_index = -1;
 			}
 			
@@ -531,7 +506,7 @@ static A_Err IdleHook(
 		S_last_layer_index = -1;
 	}
 	
-	*max_sleepPL = 50;  // Check every 50ms for more responsive double-click
+	*max_sleepPL = 50;
 	return A_Err_NONE;
 }
 
@@ -607,7 +582,6 @@ A_Err EntryPointFunc(
 	sP = pica_basicP;
 	S_my_id = aegp_plugin_id;
 	
-	// Initialize double-click detection
 	S_last_layer_index = -1;
 	S_last_comp_id = 0;
 	S_last_selection_tick = 0;
