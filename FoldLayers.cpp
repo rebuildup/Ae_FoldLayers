@@ -235,7 +235,7 @@ static A_Err DoCreateGroup(AEGP_SuiteHandler& suites)
 	}
 	
 	if (numSelected == 0) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_Error_NoSelection));
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, FLSTR(StrID_Error_NoSelection));
 		if (collectionH) suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		return A_Err_NONE;
 	}
@@ -296,12 +296,13 @@ static A_Err DoCreateGroup(AEGP_SuiteHandler& suites)
 	}
 	
 	// Create a NULL object using CompSuite
+	// Signature: AEGP_CreateNullInComp(const A_UTF16Char *nameZ0, AEGP_CompH compH, const A_Time *durationPT0, AEGP_LayerH *new_null_layerPH)
 	AEGP_LayerH newLayer = NULL;
 	ERR(suites.CompSuite11()->AEGP_CreateNullInComp(
-		compH,
-		NULL,  // name (set later)
-		NULL,  // duration (null = comp duration)
-		&newLayer
+		NULL,      // name (set later via SetLayerName)
+		compH,     // comp handle
+		NULL,      // duration (null = comp duration)
+		&newLayer  // result
 	));
 	
 	if (!err && newLayer) {
@@ -339,7 +340,7 @@ static A_Err DoCreateGroup(AEGP_SuiteHandler& suites)
 		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 	}
 	
-	suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_GroupCreated));
+	suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, FLSTR(StrID_GroupCreated));
 	
 	return err;
 }
@@ -376,7 +377,7 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 	ERR(GetLayerNameStr(suites, groupLayer, layerName));
 	
 	if (!IsFoldGroupLayer(layerName)) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_Error_NotAGroup));
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, FLSTR(StrID_Error_NotAGroup));
 		if (collectionH) suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		return A_Err_NONE;
 	}
@@ -421,7 +422,7 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 	}
 	
 	suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, 
-		currentlyFolded ? STR(StrID_Unfolded) : STR(StrID_Folded));
+		currentlyFolded ? FLSTR(StrID_Unfolded) : FLSTR(StrID_Folded));
 	
 	return err;
 }
@@ -458,7 +459,7 @@ static A_Err DoDeleteGroup(AEGP_SuiteHandler& suites)
 	ERR(GetLayerNameStr(suites, groupLayer, layerName));
 	
 	if (!IsFoldGroupLayer(layerName)) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_Error_NotAGroup));
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, FLSTR(StrID_Error_NotAGroup));
 		if (collectionH) suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		return A_Err_NONE;
 	}
@@ -492,7 +493,7 @@ static A_Err DoDeleteGroup(AEGP_SuiteHandler& suites)
 		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 	}
 	
-	suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_GroupDeleted));
+	suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, FLSTR(StrID_GroupDeleted));
 	
 	return err;
 }
@@ -550,7 +551,7 @@ static A_Err DoFoldAll(AEGP_SuiteHandler& suites, bool fold)
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
 	
 	suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, 
-		fold ? STR(StrID_AllFolded) : STR(StrID_AllUnfolded));
+		fold ? FLSTR(StrID_AllFolded) : FLSTR(StrID_AllUnfolded));
 	
 	return err;
 }
@@ -649,31 +650,31 @@ A_Err EntryPointFunc(
 	if (!err) {
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_create_group,
-			STR(StrID_Menu_CreateGroup),
+			FLSTR(StrID_Menu_CreateGroup),
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_fold_unfold,
-			STR(StrID_Menu_FoldUnfold),
+			FLSTR(StrID_Menu_FoldUnfold),
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_delete_group,
-			STR(StrID_Menu_DeleteGroup),
+			FLSTR(StrID_Menu_DeleteGroup),
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_fold_all,
-			STR(StrID_Menu_FoldAll),
+			FLSTR(StrID_Menu_FoldAll),
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_unfold_all,
-			STR(StrID_Menu_UnfoldAll),
+			FLSTR(StrID_Menu_UnfoldAll),
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		
@@ -691,7 +692,7 @@ A_Err EntryPointFunc(
 	}
 	
 	if (err) {
-		err2 = suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_Error_Registration));
+		err2 = suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, FLSTR(StrID_Error_Registration));
 	}
 	
 	return err;

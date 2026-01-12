@@ -36,5 +36,5 @@ typedef enum {
 // Use different name to avoid conflict with SDK's String_Utils.h
 char *FoldLayers_GetStringPtr(int strNum);
 
-// Macro for easy access
-#define STR(id) FoldLayers_GetStringPtr(id)
+// Macro for easy access - use FLSTR to avoid conflict with SDK's STR macro
+#define FLSTR(id) FoldLayers_GetStringPtr(id)
