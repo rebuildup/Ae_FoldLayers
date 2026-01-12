@@ -25,10 +25,12 @@ static AEGP_Command		S_cmd_fold				= 0;
 static AEGP_Command		S_cmd_unfold			= 0;
 static AEGP_Command		S_cmd_fold_unfold		= 0;
 
-// Double-click detection (simplified using tick count)
-static AEGP_LayerH		S_last_selected_layer	= NULL;
+// Double-click detection using layer index (more reliable than handle comparison)
+static A_long			S_last_layer_index		= -1;
+static A_long			S_last_comp_id			= 0;
 static A_long			S_last_selection_tick	= 0;
-static const A_long		DOUBLE_CLICK_TICKS		= 30;  // ~500ms at 60fps
+static A_long			S_idle_counter			= 0;
+static const A_long		DOUBLE_CLICK_TICKS		= 15;  // ~250ms at 60fps
 
 //=============================================================================
 // Helper Functions
@@ -150,7 +152,6 @@ static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, cons
 	return err;
 }
 
-// Convert std::string to UTF16 for API calls
 static void StringToUTF16(const std::string& str, std::vector<A_UTF16Char>& utf16)
 {
 	const unsigned char* p = (const unsigned char*)str.c_str();
@@ -266,7 +267,6 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	
 	A_long insertIndex = 0;
 	
-	// Get selected layer index for insert position
 	AEGP_Collection2H collectionH = NULL;
 	A_u_long numSelected = 0;
 	
@@ -288,26 +288,26 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
 	
-	// Create null layer with a proper name
-	AEGP_LayerH newLayer = NULL;
+	// Create name for divider (unfolded state = ▼)
 	std::string dividerName = BuildDividerName(false, "Group Divider");
 	std::vector<A_UTF16Char> nameUTF16;
 	StringToUTF16(dividerName, nameUTF16);
 	
+	AEGP_LayerH newLayer = NULL;
 	ERR(suites.CompSuite11()->AEGP_CreateNullInComp(
-		nameUTF16.data(),  // name as UTF16
-		compH,             // comp
-		NULL,              // duration (NULL = comp duration)
+		nameUTF16.data(),
+		compH,
+		NULL,
 		&newLayer
 	));
 	
 	if (!err && newLayer) {
-		// Move to insert position if needed
+		// Move to insert position
 		if (insertIndex > 0) {
 			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, insertIndex));
 		}
 		
-		// Set as guide layer
+		// Set as guide layer so it doesn't render
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_GUIDE_LAYER, TRUE));
 	}
 	
@@ -447,10 +447,8 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 }
 
 //=============================================================================
-// Idle Hook - Detect double-click on divider layers
+// Idle Hook - Double-click detection using layer index
 //=============================================================================
-
-static A_long S_idle_counter = 0;
 
 static A_Err IdleHook(
 	AEGP_GlobalRefcon	plugin_refconPV,
@@ -467,6 +465,14 @@ static A_Err IdleHook(
 	ERR(GetActiveComp(suites, &compH));
 	
 	if (!err && compH) {
+		// Get a comp ID (use item ID)
+		AEGP_ItemH compItemH = NULL;
+		A_long compId = 0;
+		ERR(suites.CompSuite11()->AEGP_GetItemFromComp(compH, &compItemH));
+		if (!err && compItemH) {
+			ERR(suites.ItemSuite9()->AEGP_GetItemID(compItemH, &compId));
+		}
+		
 		AEGP_Collection2H collectionH = NULL;
 		A_u_long numSelected = 0;
 		
@@ -480,6 +486,8 @@ static A_Err IdleHook(
 				
 				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
 					AEGP_LayerH currentLayer = item.u.layer.layerH;
+					A_long currentIndex = 0;
+					ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(currentLayer, &currentIndex));
 					
 					std::string name;
 					ERR(GetLayerNameStr(suites, currentLayer, name));
@@ -487,36 +495,44 @@ static A_Err IdleHook(
 					if (!err && IsDividerLayer(name)) {
 						A_long elapsed = S_idle_counter - S_last_selection_tick;
 						
-						if (currentLayer == S_last_selected_layer && elapsed < DOUBLE_CLICK_TICKS && elapsed > 0) {
-							bool isFolded = IsDividerFolded(name);
-							A_long idx = 0;
-							ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(currentLayer, &idx));
-							if (!err) {
-								ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
-								ERR(FoldDivider(suites, compH, currentLayer, idx, !isFolded));
-								ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
-							}
+						// Check if same layer selected again quickly (double-click)
+						if (currentIndex == S_last_layer_index && 
+						    compId == S_last_comp_id &&
+						    elapsed < DOUBLE_CLICK_TICKS && 
+						    elapsed > 2) {  // Minimum gap to avoid continuous triggers
 							
-							S_last_selected_layer = NULL;
+							bool isFolded = IsDividerFolded(name);
+							ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+							ERR(FoldDivider(suites, compH, currentLayer, currentIndex, !isFolded));
+							ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+							
+							// Reset to prevent multiple triggers
+							S_last_layer_index = -1;
 							S_last_selection_tick = 0;
-						} else if (currentLayer != S_last_selected_layer) {
-							S_last_selected_layer = currentLayer;
+						} else if (currentIndex != S_last_layer_index || compId != S_last_comp_id) {
+							// New selection - start tracking
+							S_last_layer_index = currentIndex;
+							S_last_comp_id = compId;
 							S_last_selection_tick = S_idle_counter;
 						}
 					} else {
-						S_last_selected_layer = NULL;
+						// Not a divider
+						S_last_layer_index = -1;
 					}
 				}
 			} else {
-				S_last_selected_layer = NULL;
+				// Multiple or no selection
+				S_last_layer_index = -1;
 			}
 			
 			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		}
+	} else {
+		S_last_layer_index = -1;
 	}
 	
-	*max_sleepPL = 100;
-	return A_Err_NONE;  // Don't propagate errors from idle hook
+	*max_sleepPL = 50;  // Check every 50ms for more responsive double-click
+	return A_Err_NONE;
 }
 
 //=============================================================================
@@ -569,7 +585,6 @@ static A_Err CommandHook(
 		}
 	}
 	catch (...) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: An error occurred.");
 		err = A_Err_GENERIC;
 	}
 	
@@ -592,7 +607,9 @@ A_Err EntryPointFunc(
 	sP = pica_basicP;
 	S_my_id = aegp_plugin_id;
 	
-	S_last_selected_layer = NULL;
+	// Initialize double-click detection
+	S_last_layer_index = -1;
+	S_last_comp_id = 0;
 	S_last_selection_tick = 0;
 	S_idle_counter = 0;
 	
