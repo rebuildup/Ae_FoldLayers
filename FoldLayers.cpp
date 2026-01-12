@@ -9,8 +9,7 @@
 /*      - Uses shape layer (no path) as divider                    */
 /*      - Divider is set to VIDEO_OFF (invisible)                  */
 /*      - Uses ▸ (folded) and ▾ (unfolded) characters              */
-/*      - Windows: ThreadpoolTimer for double-click detection      */
-/*      - macOS: IdleHook for double-click detection               */
+/*      - Double-click = deselect then reselect quickly            */
 /*                                                                 */
 /*******************************************************************/
 
@@ -29,22 +28,19 @@ static AEGP_Command		S_cmd_create_divider	= 0;
 static AEGP_Command		S_cmd_fold_unfold		= 0;
 
 // Double-click detection state
-static A_long			S_tracked_layer_index	= -1;
-static A_long			S_tracked_comp_id		= 0;
+static A_long			S_prev_layer_index		= -1;
+static A_long			S_prev_comp_id			= 0;
+static A_long			S_deselect_tick			= 0;
 static A_long			S_idle_counter			= 0;
-static bool				S_layer_was_selected	= false;
+static bool				S_just_deselected		= false;
 
 #ifdef AE_OS_WIN
-// Windows: ThreadpoolTimer for double-click detection
 static PTP_TIMER		S_timer					= NULL;
 static CRITICAL_SECTION	S_cs;
-static bool				S_timer_active			= false;
-static const DWORD		DOUBLE_CLICK_MS			= 400;
-#else
-// macOS: IdleHook-based detection
-static A_long			S_last_click_tick		= 0;
-static const A_long		DOUBLE_CLICK_TICKS		= 25;
+static bool				S_cs_initialized		= false;
 #endif
+
+static const A_long		DOUBLE_CLICK_TICKS		= 30;  // ~1.5 seconds window
 
 //=============================================================================
 // Helper Functions
@@ -243,6 +239,27 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	return err;
 }
 
+static A_Err ToggleDividerAtIndex(AEGP_SuiteHandler& suites, AEGP_CompH compH, A_long layerIndex)
+{
+	A_Err err = A_Err_NONE;
+	
+	AEGP_LayerH layerH = NULL;
+	ERR(suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, layerIndex, &layerH));
+	
+	if (!err && layerH) {
+		std::string name;
+		ERR(GetLayerNameStr(suites, layerH, name));
+		if (!err && IsDividerLayer(name)) {
+			bool isFolded = IsDividerFolded(name);
+			ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+			ERR(FoldDivider(suites, compH, layerH, layerIndex, !isFolded));
+			ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+		}
+	}
+	
+	return err;
+}
+
 static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites)
 {
 	A_Err err = A_Err_NONE;
@@ -325,7 +342,7 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
 	
-	// Create SHAPE layer (vector layer) - like GM FoldLayers
+	// Create SHAPE layer (vector layer)
 	AEGP_LayerH newLayer = NULL;
 	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
 	
@@ -339,8 +356,11 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, insertIndex));
 		}
 		
-		// Set VIDEO OFF (invisible) - like GM FoldLayers
+		// Set VIDEO OFF (invisible)
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_VIDEO_ACTIVE, FALSE));
+		
+		// Set label to 0 (None)
+		ERR(suites.LayerSuite9()->AEGP_SetLayerLabel(newLayer, 0));
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
@@ -354,57 +374,7 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 }
 
 //=============================================================================
-// Windows: ThreadpoolTimer for double-click detection
-//=============================================================================
-
-#ifdef AE_OS_WIN
-
-static void CALLBACK TimerCallback(PTP_CALLBACK_INSTANCE Instance, PVOID Context, PTP_TIMER Timer)
-{
-	// Timer expired without second click - reset
-	EnterCriticalSection(&S_cs);
-	S_timer_active = false;
-	S_tracked_layer_index = -1;
-	LeaveCriticalSection(&S_cs);
-}
-
-static void CheckDoubleClick(A_long layerIndex, A_long compId)
-{
-	EnterCriticalSection(&S_cs);
-	
-	if (S_timer_active && S_tracked_layer_index == layerIndex && S_tracked_comp_id == compId) {
-		// Second click on same layer within time window - this is a double-click!
-		SetThreadpoolTimer(S_timer, NULL, 0, 0);  // Cancel timer
-		S_timer_active = false;
-		S_tracked_layer_index = -1;
-		
-		LeaveCriticalSection(&S_cs);
-		
-		// Toggle the divider
-		AEGP_SuiteHandler suites(sP);
-		ToggleSelectedDividers(suites);
-	}
-	else {
-		// First click - start timer
-		S_tracked_layer_index = layerIndex;
-		S_tracked_comp_id = compId;
-		S_timer_active = true;
-		
-		ULARGE_INTEGER dueTime;
-		dueTime.QuadPart = (ULONGLONG)(-(LONGLONG)(DOUBLE_CLICK_MS * 10000));  // Relative time in 100ns units
-		FILETIME ft;
-		ft.dwLowDateTime = dueTime.LowPart;
-		ft.dwHighDateTime = dueTime.HighPart;
-		SetThreadpoolTimer(S_timer, &ft, 0, 0);
-		
-		LeaveCriticalSection(&S_cs);
-	}
-}
-
-#endif
-
-//=============================================================================
-// Idle Hook - Selection monitoring and double-click detection (macOS)
+// Idle Hook - Double-click detection via deselect->reselect pattern
 //=============================================================================
 
 static A_Err IdleHook(
@@ -421,79 +391,86 @@ static A_Err IdleHook(
 	AEGP_CompH compH = NULL;
 	ERR(GetActiveComp(suites, &compH));
 	
-	if (!err && compH) {
-		AEGP_ItemH compItemH = NULL;
-		A_long compId = 0;
-		ERR(suites.CompSuite11()->AEGP_GetItemFromComp(compH, &compItemH));
-		if (!err && compItemH) {
-			ERR(suites.ItemSuite9()->AEGP_GetItemID(compItemH, &compId));
-		}
-		
-		AEGP_Collection2H collectionH = NULL;
-		A_u_long numSelected = 0;
-		
-		ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
-		if (!err && collectionH) {
-			ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
+	if (err || !compH) {
+		S_prev_layer_index = -1;
+		S_just_deselected = false;
+		*max_sleepPL = 100;
+		return A_Err_NONE;
+	}
+	
+	// Get comp ID
+	AEGP_ItemH compItemH = NULL;
+	A_long compId = 0;
+	ERR(suites.CompSuite11()->AEGP_GetItemFromComp(compH, &compItemH));
+	if (!err && compItemH) {
+		ERR(suites.ItemSuite9()->AEGP_GetItemID(compItemH, &compId));
+	}
+	
+	// Get current selection
+	AEGP_Collection2H collectionH = NULL;
+	A_u_long numSelected = 0;
+	
+	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
+	if (err || !collectionH) {
+		*max_sleepPL = 100;
+		return A_Err_NONE;
+	}
+	
+	ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
+	
+	if (!err) {
+		if (numSelected == 1) {
+			// Single layer selected
+			AEGP_CollectionItemV2 item;
+			ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
 			
-			if (!err && numSelected == 1) {
-				AEGP_CollectionItemV2 item;
-				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
+			if (!err && item.type == AEGP_CollectionItemType_LAYER) {
+				A_long currentIndex = 0;
+				ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &currentIndex));
 				
-				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-					AEGP_LayerH currentLayer = item.u.layer.layerH;
-					A_long currentIndex = 0;
-					ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(currentLayer, &currentIndex));
-					
-					std::string name;
-					ERR(GetLayerNameStr(suites, currentLayer, name));
-					
-					if (!err && IsDividerLayer(name)) {
-						// Divider layer is selected
-						if (!S_layer_was_selected) {
-							// Layer just became selected
-							S_layer_was_selected = true;
-							
-#ifdef AE_OS_WIN
-							CheckDoubleClick(currentIndex, compId);
-#else
-							// macOS: Check if this is a double-click
-							A_long elapsed = S_idle_counter - S_last_click_tick;
-							if (S_tracked_layer_index == currentIndex && 
-							    S_tracked_comp_id == compId &&
-							    elapsed < DOUBLE_CLICK_TICKS) {
-								// Double-click detected!
-								ToggleSelectedDividers(suites);
-								S_tracked_layer_index = -1;
-							}
-							else {
-								// First click
-								S_tracked_layer_index = currentIndex;
-								S_tracked_comp_id = compId;
-								S_last_click_tick = S_idle_counter;
-							}
-#endif
+				std::string name;
+				ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
+				
+				if (!err && IsDividerLayer(name)) {
+					// A divider is selected
+					if (S_just_deselected && 
+					    currentIndex == S_prev_layer_index && 
+					    compId == S_prev_comp_id) {
+						// This is a reselection after deselection - double-click!
+						A_long elapsed = S_idle_counter - S_deselect_tick;
+						if (elapsed < DOUBLE_CLICK_TICKS) {
+							// Toggle!
+							ToggleDividerAtIndex(suites, compH, currentIndex);
 						}
 					}
-					else {
-						// Not a divider
-						S_layer_was_selected = false;
-						S_tracked_layer_index = -1;
-					}
+					
+					// Remember this selection
+					S_prev_layer_index = currentIndex;
+					S_prev_comp_id = compId;
+					S_just_deselected = false;
+				}
+				else {
+					// Not a divider - forget
+					S_prev_layer_index = -1;
+					S_just_deselected = false;
 				}
 			}
-			else {
-				// No selection or multiple selection
-				S_layer_was_selected = false;
+		}
+		else if (numSelected == 0) {
+			// Nothing selected - mark as deselected if we were tracking a divider
+			if (S_prev_layer_index >= 0) {
+				S_just_deselected = true;
+				S_deselect_tick = S_idle_counter;
 			}
-			
-			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+		}
+		else {
+			// Multiple selection - forget
+			S_prev_layer_index = -1;
+			S_just_deselected = false;
 		}
 	}
-	else {
-		S_layer_was_selected = false;
-		S_tracked_layer_index = -1;
-	}
+	
+	suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 	
 	*max_sleepPL = 50;
 	return A_Err_NONE;
@@ -562,18 +539,15 @@ A_Err EntryPointFunc(
 	S_my_id = aegp_plugin_id;
 	
 	// Initialize state
-	S_tracked_layer_index = -1;
-	S_tracked_comp_id = 0;
+	S_prev_layer_index = -1;
+	S_prev_comp_id = 0;
+	S_deselect_tick = 0;
 	S_idle_counter = 0;
-	S_layer_was_selected = false;
+	S_just_deselected = false;
 	
 #ifdef AE_OS_WIN
-	// Initialize Windows timer
 	InitializeCriticalSection(&S_cs);
-	S_timer = CreateThreadpoolTimer(TimerCallback, NULL, NULL);
-	S_timer_active = false;
-#else
-	S_last_click_tick = 0;
+	S_cs_initialized = true;
 #endif
 	
 	AEGP_SuiteHandler suites(sP);
