@@ -629,6 +629,8 @@ jobs:
           Write-Host "Searching for build artifact..."
           
           $searchPaths = @(
+            "${{ github.workspace }}\ae_plugin_output\AEGP\FoldLayers.aex",
+            "$pluginBuildDir\AEGP\FoldLayers.aex",
             "x64\Release\FoldLayers.aex",
             "..\output\FoldLayers.aex",
             "Release\FoldLayers.aex",
