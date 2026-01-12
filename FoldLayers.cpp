@@ -5,12 +5,10 @@
 /*      Developer: 361do_plugins                                   */
 /*      https://github.com/rebuildup                               */
 /*                                                                 */
-/*      Based on GM FoldLayers analysis:                           */
-/*      - Uses shape layer (no path) as divider                    */
-/*      - Divider is set to VIDEO_OFF (invisible)                  */
-/*      - Uses ▸ (folded) and ▾ (unfolded) characters              */
-/*      - Windows: Mouse hook for real double-click detection      */
-/*      - macOS: Fallback to selection monitoring                  */
+/*      Hierarchy naming:                                          */
+/*      - Top level: ▾ Group Divider                               */
+/*      - Nested:    ▾(1) Group Divider                            */
+/*      - Deeper:    ▾(1/B) Group Divider                          */
 /*                                                                 */
 /*******************************************************************/
 
@@ -32,8 +30,10 @@ static AEGP_Command		S_cmd_fold_unfold		= 0;
 // Windows: Mouse hook for double-click detection
 static HHOOK			S_mouse_hook			= NULL;
 static bool				S_double_click_pending	= false;
+static bool				S_suppress_next_action	= false;
 static CRITICAL_SECTION	S_cs;
 static bool				S_cs_initialized		= false;
+static bool				S_is_divider_selected	= false; // Track selection state for hook
 #endif
 
 // Idle hook state
@@ -43,19 +43,142 @@ static A_long			S_idle_counter			= 0;
 // Helper Functions
 //=============================================================================
 
-static bool IsDividerLayer(const std::string& name)
+// Check if layer has specific stream/group "FoldGroupData"
+static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
-	if (name.length() >= 3) {
-		unsigned char c0 = (unsigned char)name[0];
-		unsigned char c1 = (unsigned char)name[1];
-		unsigned char c2 = (unsigned char)name[2];
-		// ▸ = E2 96 B8, ▾ = E2 96 BE
-		if (c0 == 0xE2 && c1 == 0x96 && (c2 == 0xB8 || c2 == 0xBE)) {
-			return true;
+	if (!layerH) return false;
+	
+	A_Err err = A_Err_NONE;
+	bool hasIdentity = false;
+	
+	// Get root stream
+	AEGP_StreamRefH rootStreamH = NULL;
+	ERR(suites.StreamSuite2()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
+	
+	if (!err && rootStreamH) {
+		// Shape layers have "ADBE Root Vectors Group"
+		// We look for "FoldGroupData" inside it, or just anywhere in the root properties maybe?
+		// Actually, let's look for a specific named group at the top level or inside Contents.
+		
+		A_long numStreams = 0;
+		ERR(suites.DynamicStreamSuite2()->AEGP_GetNumStreams(rootStreamH, &numStreams));
+		
+		for (A_long i = 0; i < numStreams && !err && !hasIdentity; i++) {
+			AEGP_StreamRefH childStreamH = NULL;
+			ERR(suites.DynamicStreamSuite2()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childStreamH));
+			if (!err && childStreamH) {
+				AEGP_StreamGroupingType groupType;
+				ERR(suites.DynamicStreamSuite2()->AEGP_GetStreamGroupingType(childStreamH, &groupType));
+				
+				if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
+					// Check name
+					AEGP_MemHandle nameH = NULL;
+					ERR(suites.StreamSuite2()->AEGP_GetStreamName(childStreamH, FALSE, &nameH)); // FALSE = distinct name
+					if (!err && nameH) {
+						A_char nameBuf[256] = {'\0'};
+						ERR(suites.MemorySuite1()->AEGP_GetMemHandleSize(nameH, NULL)); // Check size?
+						void* dataP = NULL;
+						ERR(suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP));
+						if (dataP) {
+							// Copy safely
+							strncpy_s(nameBuf, (const char*)dataP, 255);
+							if (std::string(nameBuf) == "FoldGroupData") {
+								hasIdentity = true;
+							}
+						}
+						suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
+						suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
+					}
+				}
+				suites.StreamSuite2()->AEGP_DisposeStream(childStreamH);
+			}
+		}
+		suites.StreamSuite2()->AEGP_DisposeStream(rootStreamH);
+	}
+	
+	return hasIdentity;
+}
+
+// Add identification group to layer
+static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+{
+	A_Err err = A_Err_NONE;
+	if (!layerH) return A_Err_STRUCT;
+	
+	AEGP_StreamRefH rootStreamH = NULL;
+	ERR(suites.StreamSuite2()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
+	
+	if (!err && rootStreamH) {
+		// Find "ADBE Root Vectors Group" (Contents)
+		AEGP_StreamRefH contentsStreamH = NULL;
+		A_long numStreams = 0;
+		ERR(suites.DynamicStreamSuite2()->AEGP_GetNumStreams(rootStreamH, &numStreams));
+		
+		for (A_long i = 0; i < numStreams && !err; i++) {
+			AEGP_StreamRefH childH = NULL;
+			ERR(suites.DynamicStreamSuite2()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childH));
+			if (!err && childH) {
+				// Check match name for Contents
+				AEGP_MemHandle matchNameH = NULL;
+				ERR(suites.StreamSuite2()->AEGP_GetStreamMatchName(childH, &matchNameH)); // Get match name
+				if (!err && matchNameH) {
+					A_char matchName[256] = {'\0'};
+					void* dataP = NULL;
+					ERR(suites.MemorySuite1()->AEGP_LockMemHandle(matchNameH, &dataP));
+					if (dataP) strncpy_s(matchName, (const char*)dataP, 255);
+					suites.MemorySuite1()->AEGP_UnlockMemHandle(matchNameH);
+					suites.MemorySuite1()->AEGP_FreeMemHandle(matchNameH);
+					
+					if (strcmp(matchName, "ADBE Root Vectors Group") == 0) {
+						contentsStreamH = childH; // Found it!
+						break; // Detect loop break, don't dispose yet
+					}
+				}
+				
+				if (contentsStreamH != childH) {
+					suites.StreamSuite2()->AEGP_DisposeStream(childH);
+				}
+			}
+		}
+		
+		if (contentsStreamH) {
+			// Add new group "ADBE Vector Group"
+			AEGP_StreamRefH newGroupH = NULL;
+			ERR(suites.DynamicStreamSuite2()->AEGP_AddStream(contentsStreamH, "ADBE Vector Group", &newGroupH));
+			
+			if (!err && newGroupH) {
+				// Rename it to "FoldGroupData"
+				ERR(suites.StreamSuite2()->AEGP_SetStreamName(newGroupH, "FoldGroupData"));
+				suites.StreamSuite2()->AEGP_DisposeStream(newGroupH);
+			}
+			suites.StreamSuite2()->AEGP_DisposeStream(contentsStreamH);
+		}
+		
+		suites.StreamSuite2()->AEGP_DisposeStream(rootStreamH);
+	}
+	return err;
+}
+
+// Check if name starts with fold/unfold prefix OR has identity
+static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+{
+	// First check legacy name-based (fast)
+	std::string name;
+	if (GetLayerNameStr(suites, layerH, name) == A_Err_NONE) {
+		if (name.length() >= 3) {
+			unsigned char c0 = (unsigned char)name[0];
+			unsigned char c1 = (unsigned char)name[1];
+			unsigned char c2 = (unsigned char)name[2];
+			if (c0 == 0xE2 && c1 == 0x96 && (c2 == 0xB8 || c2 == 0xBE)) {
+				return true;
+			}
 		}
 	}
-	return false;
+	
+	// If name check failed, check identity content
+	return HasDividerIdentity(suites, layerH);
 }
+
 
 static bool IsDividerFolded(const std::string& name)
 {
@@ -71,15 +194,70 @@ static bool IsDividerFolded(const std::string& name)
 	return false;
 }
 
+// Parse hierarchy from name like "▾(1/B) Group" -> "1/B"
+static std::string GetHierarchy(const std::string& name)
+{
+	// Skip the prefix (3 bytes for triangle + 1 for space)
+	if (name.length() < 4) return "";
+	
+	size_t pos = 4;  // After "▾ " or "▸ "
+	
+	// Skip space if present after prefix
+	while (pos < name.length() && name[pos] == ' ') pos++;
+	
+	// Check for hierarchy marker
+	if (pos < name.length() && name[pos] == '(') {
+		size_t endPos = name.find(')', pos);
+		if (endPos != std::string::npos) {
+			return name.substr(pos + 1, endPos - pos - 1);
+		}
+	}
+	
+	return "";
+}
+
+// Get depth from hierarchy string
+static int GetHierarchyDepth(const std::string& hierarchy)
+{
+	if (hierarchy.empty()) return 0;
+	
+	int depth = 1;
+	for (char c : hierarchy) {
+		if (c == '/') depth++;
+	}
+	return depth;
+}
+
+// Get display name without prefix and hierarchy
 static std::string GetDividerName(const std::string& fullName)
 {
 	if (fullName.length() <= 4) return "Group Divider";
-	return fullName.substr(4);
+	
+	size_t pos = 4;  // After prefix
+	
+	// Skip hierarchy if present
+	if (pos < fullName.length() && fullName[pos] == '(') {
+		size_t endPos = fullName.find(')', pos);
+		if (endPos != std::string::npos) {
+			pos = endPos + 1;
+			// Skip space after hierarchy
+			while (pos < fullName.length() && fullName[pos] == ' ') pos++;
+		}
+	}
+	
+	if (pos >= fullName.length()) return "Group Divider";
+	return fullName.substr(pos);
 }
 
-static std::string BuildDividerName(bool folded, const std::string& name)
+// Build full name with prefix and optional hierarchy
+static std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
 {
 	std::string result = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
+	if (!hierarchy.empty()) {
+		result += "(";
+		result += hierarchy;
+		result += ") ";
+	}
 	result += name;
 	return result;
 }
@@ -185,11 +363,15 @@ static A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
 	return err;
 }
 
+// Get layers that belong to this divider's group
+// Considers hierarchy - stops at same or higher level divider
 static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH, 
-                            A_long dividerIndex, std::vector<AEGP_LayerH>& groupLayers)
+                            A_long dividerIndex, const std::string& dividerHierarchy,
+                            std::vector<AEGP_LayerH>& groupLayers)
 {
 	A_Err err = A_Err_NONE;
 	A_long numLayers = 0;
+	int myDepth = GetHierarchyDepth(dividerHierarchy);
 	
 	ERR(suites.LayerSuite9()->AEGP_GetCompNumLayers(compH, &numLayers));
 	
@@ -200,8 +382,16 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 			std::string name;
 			ERR(GetLayerNameStr(suites, layer, name));
 			
-			if (!err && IsDividerLayer(name)) {
-				break;
+			if (!err && IsDividerLayer(suites, layer)) {
+				// Check hierarchy depth
+				std::string otherHierarchy = GetHierarchy(name);
+				int otherDepth = GetHierarchyDepth(otherHierarchy);
+				
+				// Stop at same or higher level divider
+				if (otherDepth <= myDepth) {
+					break;
+				}
+				// Nested dividers are included in the group
 			}
 			
 			groupLayers.push_back(layer);
@@ -222,12 +412,13 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	ERR(GetLayerNameStr(suites, dividerLayer, dividerName));
 	if (err) return err;
 	
+	std::string hierarchy = GetHierarchy(dividerName);
 	std::string baseName = GetDividerName(dividerName);
-	std::string newName = BuildDividerName(fold, baseName);
+	std::string newName = BuildDividerName(fold, hierarchy, baseName);
 	ERR(SetLayerNameStr(suites, dividerLayer, newName));
 	
 	std::vector<AEGP_LayerH> groupLayers;
-	ERR(GetGroupLayers(suites, compH, dividerIndex, groupLayers));
+	ERR(GetGroupLayers(suites, compH, dividerIndex, hierarchy, groupLayers));
 	
 	for (size_t i = 0; i < groupLayers.size() && !err; i++) {
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(groupLayers[i], AEGP_LayerFlag_SHY, fold ? TRUE : FALSE));
@@ -236,13 +427,83 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	return err;
 }
 
-static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites)
+// Toggle a single divider
+static A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH, 
+                           AEGP_LayerH layerH, A_long layerIndex)
 {
 	A_Err err = A_Err_NONE;
-	AEGP_CompH compH = NULL;
 	
-	ERR(GetActiveComp(suites, &compH));
-	if (!compH) return A_Err_NONE;
+	std::string name;
+	ERR(GetLayerNameStr(suites, layerH, name));
+	
+	if (!err && IsDividerLayer(suites, layerH)) {
+		bool isFolded = IsDividerFolded(name);
+		ERR(FoldDivider(suites, compH, layerH, layerIndex, !isFolded));
+	}
+	
+	return err;
+}
+
+// Get all dividers in the composition
+static A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+                            std::vector<std::pair<AEGP_LayerH, A_long>>& dividers)
+{
+	A_Err err = A_Err_NONE;
+	A_long numLayers = 0;
+	
+	ERR(suites.LayerSuite9()->AEGP_GetCompNumLayers(compH, &numLayers));
+	
+	for (A_long i = 0; i < numLayers && !err; i++) {
+		AEGP_LayerH layer = NULL;
+		ERR(suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &layer));
+		if (!err && layer) {
+			std::string name;
+			ERR(GetLayerNameStr(suites, layer, name));
+			if (!err && IsDividerLayer(suites, layer)) {
+				dividers.push_back(std::make_pair(layer, i));
+			}
+		}
+	}
+	
+	return err;
+}
+
+// Check if any divider is selected
+static A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool* result)
+{
+	A_Err err = A_Err_NONE;
+	*result = false;
+	
+	AEGP_Collection2H collectionH = NULL;
+	A_u_long numSelected = 0;
+	
+	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
+	if (!err && collectionH) {
+		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
+		
+		for (A_u_long i = 0; i < numSelected && !err; i++) {
+			AEGP_CollectionItemV2 item;
+			ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
+			if (!err && item.type == AEGP_CollectionItemType_LAYER) {
+				std::string name;
+				ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
+				if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
+					*result = true;
+					break;
+				}
+			}
+		}
+		
+		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+	}
+	
+	return err;
+}
+
+// Toggle selected dividers only
+static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
+{
+	A_Err err = A_Err_NONE;
 	
 	AEGP_Collection2H collectionH = NULL;
 	A_u_long numSelected = 0;
@@ -252,29 +513,62 @@ static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites)
 		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
 		
 		if (!err && numSelected > 0) {
-			ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
-			
 			for (A_u_long i = 0; i < numSelected && !err; i++) {
 				AEGP_CollectionItemV2 item;
 				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
 				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
 					std::string name;
 					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-					if (!err && IsDividerLayer(name)) {
-						bool isFolded = IsDividerFolded(name);
+					if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
 						A_long idx = 0;
 						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
 						if (!err) {
-							ERR(FoldDivider(suites, compH, item.u.layer.layerH, idx, !isFolded));
+							ERR(ToggleDivider(suites, compH, item.u.layer.layerH, idx));
 						}
 					}
 				}
 			}
-			
-			ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
 		}
 		
 		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+	}
+	
+	return err;
+}
+
+// Toggle all dividers - unfold priority, fold if all unfolded
+static A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
+{
+	A_Err err = A_Err_NONE;
+	
+	std::vector<std::pair<AEGP_LayerH, A_long>> dividers;
+	ERR(GetAllDividers(suites, compH, dividers));
+	
+	if (!err && !dividers.empty()) {
+		// Check if all are unfolded
+		bool allUnfolded = true;
+		for (auto& div : dividers) {
+			std::string name;
+			ERR(GetLayerNameStr(suites, div.first, name));
+			if (!err && IsDividerFolded(name)) {
+				allUnfolded = false;
+				break;
+			}
+		}
+		
+		// If all unfolded -> fold all, otherwise unfold all
+		bool targetFold = allUnfolded;
+		
+		for (auto& div : dividers) {
+			std::string name;
+			ERR(GetLayerNameStr(suites, div.first, name));
+			if (!err) {
+				bool isFolded = IsDividerFolded(name);
+				if (isFolded != targetFold) {
+					ERR(FoldDivider(suites, compH, div.first, div.second, targetFold));
+				}
+			}
+		}
 	}
 	
 	return err;
@@ -296,7 +590,9 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	}
 	
 	A_long insertIndex = 0;
+	std::string parentHierarchy = "";
 	
+	// Find insert position and parent hierarchy
 	AEGP_Collection2H collectionH = NULL;
 	A_u_long numSelected = 0;
 	
@@ -309,6 +605,58 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 			ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
 			if (!err && item.type == AEGP_CollectionItemType_LAYER) {
 				ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &insertIndex));
+				
+				// Check if selected layer is a divider - if so, nest under it
+				std::string selName;
+				ERR(GetLayerNameStr(suites, item.u.layer.layerH, selName));
+				if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
+					std::string selHierarchy = GetHierarchy(selName);
+					// Find next available sub-level
+					// Count existing children at this level
+					std::vector<std::pair<AEGP_LayerH, A_long>> allDividers;
+					ERR(GetAllDividers(suites, compH, allDividers));
+					
+					int childCount = 0;
+					std::string prefix = selHierarchy.empty() ? "" : selHierarchy + "/";
+					
+					for (auto& div : allDividers) {
+						std::string divName;
+						ERR(GetLayerNameStr(suites, div.first, divName));
+						if (!err) {
+							std::string divHier = GetHierarchy(divName);
+							// Check if it's a direct child
+							if (!prefix.empty() && divHier.substr(0, prefix.length()) == prefix) {
+								// Count only direct children (no additional /)
+								std::string remainder = divHier.substr(prefix.length());
+								if (remainder.find('/') == std::string::npos) {
+									childCount++;
+								}
+							} else if (prefix.empty() && !divHier.empty() && divHier.find('/') == std::string::npos) {
+								childCount++;
+							}
+						}
+					}
+					
+					// Build new hierarchy
+					childCount++;  // Next number
+					if (selHierarchy.empty()) {
+						parentHierarchy = std::to_string(childCount);
+					} else {
+						// Use letters for deeper nesting: 1, 1/A, 1/A/a, 1/A/a/i...
+						int depth = GetHierarchyDepth(selHierarchy);
+						char nextChar;
+						if (depth == 0) {
+							nextChar = '0' + childCount;
+						} else if (depth == 1) {
+							nextChar = 'A' + (childCount - 1);
+						} else if (depth == 2) {
+							nextChar = 'a' + (childCount - 1);
+						} else {
+							nextChar = 'i' + (childCount - 1);  // i, ii, iii style approximation
+						}
+						parentHierarchy = selHierarchy + "/" + nextChar;
+					}
+				}
 			}
 		}
 		
@@ -318,13 +666,13 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
 	
-	// Create SHAPE layer (vector layer)
+	// Create SHAPE layer
 	AEGP_LayerH newLayer = NULL;
 	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
 	
 	if (!err && newLayer) {
-		// Set layer name with expanded prefix (▾ = unfolded state)
-		std::string dividerName = BuildDividerName(false, "Group Divider");
+		// Set layer name with hierarchy
+		std::string dividerName = BuildDividerName(false, parentHierarchy, "Group Divider");
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
 		
 		// Move to insert position
@@ -337,6 +685,9 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		
 		// Set label to 0 (None)
 		ERR(suites.LayerSuite9()->AEGP_SetLayerLabel(newLayer, 0));
+		
+		// Add identity group
+		ERR(AddDividerIdentity(suites, newLayer));
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
@@ -346,7 +697,31 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 
 static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 {
-	return ToggleSelectedDividers(suites);
+	A_Err err = A_Err_NONE;
+	AEGP_CompH compH = NULL;
+	
+	ERR(GetActiveComp(suites, &compH));
+	if (!compH) return A_Err_NONE;
+	
+	// Check if any divider is selected
+	bool dividerSelected = false;
+	ERR(IsDividerSelected(suites, compH, &dividerSelected));
+	
+	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+	
+	if (!err) {
+		if (dividerSelected) {
+			// Toggle only selected dividers
+			ERR(ToggleSelectedDividers(suites, compH));
+		} else {
+			// Toggle all dividers
+			ERR(ToggleAllDividers(suites, compH));
+		}
+	}
+	
+	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+	
+	return err;
 }
 
 //=============================================================================
@@ -355,15 +730,72 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 
 #ifdef AE_OS_WIN
 
+// Forward declaration
+static A_Err ProcessDoubleClick();
+
 static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
 	if (nCode >= 0 && wParam == WM_LBUTTONDBLCLK) {
-		// Double-click detected!
+		// Only suppress if we believe a divider is selected
+		bool should_suppress = false;
+		
 		EnterCriticalSection(&S_cs);
-		S_double_click_pending = true;
+		if (S_is_divider_selected) {
+			S_double_click_pending = true;
+			should_suppress = true;
+		}
 		LeaveCriticalSection(&S_cs);
+		
+		if (should_suppress) {
+			return 1; // Block message -> No sound!
+		}
 	}
 	return CallNextHookEx(S_mouse_hook, nCode, wParam, lParam);
+}
+
+static A_Err ProcessDoubleClick()
+{
+	A_Err err = A_Err_NONE;
+	
+	AEGP_SuiteHandler suites(sP);
+	
+	AEGP_CompH compH = NULL;
+	ERR(GetActiveComp(suites, &compH));
+	
+	if (!err && compH) {
+		AEGP_Collection2H collectionH = NULL;
+		A_u_long numSelected = 0;
+		
+		ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
+		if (!err && collectionH) {
+			ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
+			
+			if (!err && numSelected == 1) {
+				AEGP_CollectionItemV2 item;
+				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
+				
+				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
+					std::string name;
+					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
+					
+					if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
+						// Divider is selected and double-clicked - toggle!
+						A_long idx = 0;
+						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
+						if (!err) {
+							ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+							ERR(ToggleDivider(suites, compH, item.u.layer.layerH, idx));
+							ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+						}
+					}
+				}
+			}
+			
+			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+		}
+	}
+	
+	return err;
 }
 
 #endif
@@ -381,10 +813,24 @@ static A_Err IdleHook(
 	
 	S_idle_counter++;
 	
+	AEGP_SuiteHandler suites(sP);
+	
+	// Default to not selected
+	bool dividerSelected = false;
+	
+	AEGP_CompH compH = NULL;
+	if (GetActiveComp(suites, &compH) == A_Err_NONE && compH) {
+		// Check selection state for the hook
+		IsDividerSelected(suites, compH, &dividerSelected);
+	}
+	
 #ifdef AE_OS_WIN
+	// Update shared state
+	EnterCriticalSection(&S_cs);
+	S_is_divider_selected = dividerSelected;
+	
 	// Check if a double-click is pending
 	bool dblclick = false;
-	EnterCriticalSection(&S_cs);
 	if (S_double_click_pending) {
 		dblclick = true;
 		S_double_click_pending = false;
@@ -392,45 +838,7 @@ static A_Err IdleHook(
 	LeaveCriticalSection(&S_cs);
 	
 	if (dblclick) {
-		// A double-click just happened - check if a divider is selected
-		AEGP_SuiteHandler suites(sP);
-		
-		AEGP_CompH compH = NULL;
-		ERR(GetActiveComp(suites, &compH));
-		
-		if (!err && compH) {
-			AEGP_Collection2H collectionH = NULL;
-			A_u_long numSelected = 0;
-			
-			ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
-			if (!err && collectionH) {
-				ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-				
-				if (!err && numSelected == 1) {
-					AEGP_CollectionItemV2 item;
-					ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
-					
-					if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-						std::string name;
-						ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-						
-						if (!err && IsDividerLayer(name)) {
-							// Divider is selected and double-clicked - toggle!
-							bool isFolded = IsDividerFolded(name);
-							A_long idx = 0;
-							ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
-							if (!err) {
-								ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
-								ERR(FoldDivider(suites, compH, item.u.layer.layerH, idx, !isFolded));
-								ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
-							}
-						}
-					}
-				}
-				
-				suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-			}
-		}
+		ProcessDoubleClick();
 	}
 #endif
 	
