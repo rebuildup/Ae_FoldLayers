@@ -9,12 +9,16 @@
 /*      - Uses shape layer (no path) as divider                    */
 /*      - Divider is set to VIDEO_OFF (invisible)                  */
 /*      - Uses ▸ (folded) and ▾ (unfolded) characters              */
-/*      - Uses ThreadpoolTimer for selection monitoring            */
-/*        (we use AEGP IdleHook instead for cross-platform)        */
+/*      - Windows: ThreadpoolTimer for double-click detection      */
+/*      - macOS: IdleHook for double-click detection               */
 /*                                                                 */
 /*******************************************************************/
 
 #include "FoldLayers.h"
+
+#ifdef AE_OS_WIN
+#include <windows.h>
+#endif
 
 // Global variables
 static AEGP_PluginID	S_my_id				= 0;
@@ -22,17 +26,25 @@ static SPBasicSuite		*sP					= NULL;
 
 // Menu command IDs
 static AEGP_Command		S_cmd_create_divider	= 0;
-static AEGP_Command		S_cmd_fold				= 0;
-static AEGP_Command		S_cmd_unfold			= 0;
 static AEGP_Command		S_cmd_fold_unfold		= 0;
 
 // Double-click detection state
 static A_long			S_tracked_layer_index	= -1;
 static A_long			S_tracked_comp_id		= 0;
-static A_long			S_selection_start_tick	= 0;
 static A_long			S_idle_counter			= 0;
-static bool				S_selection_ended		= false;
-static const A_long		RESELECT_WINDOW			= 30;  // ticks to detect reselection
+static bool				S_layer_was_selected	= false;
+
+#ifdef AE_OS_WIN
+// Windows: ThreadpoolTimer for double-click detection
+static PTP_TIMER		S_timer					= NULL;
+static CRITICAL_SECTION	S_cs;
+static bool				S_timer_active			= false;
+static const DWORD		DOUBLE_CLICK_MS			= 400;
+#else
+// macOS: IdleHook-based detection
+static A_long			S_last_click_tick		= 0;
+static const A_long		DOUBLE_CLICK_TICKS		= 25;
+#endif
 
 //=============================================================================
 // Helper Functions
@@ -231,6 +243,50 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	return err;
 }
 
+static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites)
+{
+	A_Err err = A_Err_NONE;
+	AEGP_CompH compH = NULL;
+	
+	ERR(GetActiveComp(suites, &compH));
+	if (!compH) return A_Err_NONE;
+	
+	AEGP_Collection2H collectionH = NULL;
+	A_u_long numSelected = 0;
+	
+	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
+	if (!err && collectionH) {
+		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
+		
+		if (!err && numSelected > 0) {
+			ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+			
+			for (A_u_long i = 0; i < numSelected && !err; i++) {
+				AEGP_CollectionItemV2 item;
+				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
+				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
+					std::string name;
+					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
+					if (!err && IsDividerLayer(name)) {
+						bool isFolded = IsDividerFolded(name);
+						A_long idx = 0;
+						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
+						if (!err) {
+							ERR(FoldDivider(suites, compH, item.u.layer.layerH, idx, !isFolded));
+						}
+					}
+				}
+			}
+			
+			ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+		}
+		
+		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+	}
+	
+	return err;
+}
+
 //=============================================================================
 // Command Handlers
 //=============================================================================
@@ -285,9 +341,6 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		
 		// Set VIDEO OFF (invisible) - like GM FoldLayers
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_VIDEO_ACTIVE, FALSE));
-		
-		// Set as guide layer so it doesn't render even if visible
-		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_GUIDE_LAYER, TRUE));
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
@@ -295,139 +348,63 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	return err;
 }
 
-static A_Err DoFoldGroup(AEGP_SuiteHandler& suites)
-{
-	A_Err err = A_Err_NONE;
-	AEGP_CompH compH = NULL;
-	
-	ERR(GetActiveComp(suites, &compH));
-	if (!compH) return A_Err_NONE;
-	
-	AEGP_Collection2H collectionH = NULL;
-	A_u_long numSelected = 0;
-	
-	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
-	if (!err && collectionH) {
-		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-		
-		if (!err && numSelected > 0) {
-			ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold Group"));
-			
-			for (A_u_long i = 0; i < numSelected && !err; i++) {
-				AEGP_CollectionItemV2 item;
-				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
-				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-					std::string name;
-					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-					if (!err && IsDividerLayer(name) && !IsDividerFolded(name)) {
-						A_long idx = 0;
-						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
-						if (!err) {
-							ERR(FoldDivider(suites, compH, item.u.layer.layerH, idx, true));
-						}
-					}
-				}
-			}
-			
-			ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
-		}
-		
-		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-	}
-	
-	return err;
-}
-
-static A_Err DoUnfoldGroup(AEGP_SuiteHandler& suites)
-{
-	A_Err err = A_Err_NONE;
-	AEGP_CompH compH = NULL;
-	
-	ERR(GetActiveComp(suites, &compH));
-	if (!compH) return A_Err_NONE;
-	
-	AEGP_Collection2H collectionH = NULL;
-	A_u_long numSelected = 0;
-	
-	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
-	if (!err && collectionH) {
-		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-		
-		if (!err && numSelected > 0) {
-			ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Unfold Group"));
-			
-			for (A_u_long i = 0; i < numSelected && !err; i++) {
-				AEGP_CollectionItemV2 item;
-				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
-				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-					std::string name;
-					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-					if (!err && IsDividerLayer(name) && IsDividerFolded(name)) {
-						A_long idx = 0;
-						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
-						if (!err) {
-							ERR(FoldDivider(suites, compH, item.u.layer.layerH, idx, false));
-						}
-					}
-				}
-			}
-			
-			ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
-		}
-		
-		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-	}
-	
-	return err;
-}
-
 static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 {
-	A_Err err = A_Err_NONE;
-	AEGP_CompH compH = NULL;
-	
-	ERR(GetActiveComp(suites, &compH));
-	if (!compH) return A_Err_NONE;
-	
-	AEGP_Collection2H collectionH = NULL;
-	A_u_long numSelected = 0;
-	
-	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
-	if (!err && collectionH) {
-		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-		
-		if (!err && numSelected > 0) {
-			ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
-			
-			for (A_u_long i = 0; i < numSelected && !err; i++) {
-				AEGP_CollectionItemV2 item;
-				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
-				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-					std::string name;
-					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-					if (!err && IsDividerLayer(name)) {
-						bool isFolded = IsDividerFolded(name);
-						A_long idx = 0;
-						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
-						if (!err) {
-							ERR(FoldDivider(suites, compH, item.u.layer.layerH, idx, !isFolded));
-						}
-					}
-				}
-			}
-			
-			ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
-		}
-		
-		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-	}
-	
-	return err;
+	return ToggleSelectedDividers(suites);
 }
 
 //=============================================================================
-// Idle Hook - Double-click detection via selection state changes
-// GM FoldLayers uses ThreadpoolTimer, we use IdleHook for cross-platform
+// Windows: ThreadpoolTimer for double-click detection
+//=============================================================================
+
+#ifdef AE_OS_WIN
+
+static void CALLBACK TimerCallback(PTP_CALLBACK_INSTANCE Instance, PVOID Context, PTP_TIMER Timer)
+{
+	// Timer expired without second click - reset
+	EnterCriticalSection(&S_cs);
+	S_timer_active = false;
+	S_tracked_layer_index = -1;
+	LeaveCriticalSection(&S_cs);
+}
+
+static void CheckDoubleClick(A_long layerIndex, A_long compId)
+{
+	EnterCriticalSection(&S_cs);
+	
+	if (S_timer_active && S_tracked_layer_index == layerIndex && S_tracked_comp_id == compId) {
+		// Second click on same layer within time window - this is a double-click!
+		SetThreadpoolTimer(S_timer, NULL, 0, 0);  // Cancel timer
+		S_timer_active = false;
+		S_tracked_layer_index = -1;
+		
+		LeaveCriticalSection(&S_cs);
+		
+		// Toggle the divider
+		AEGP_SuiteHandler suites(sP);
+		ToggleSelectedDividers(suites);
+	}
+	else {
+		// First click - start timer
+		S_tracked_layer_index = layerIndex;
+		S_tracked_comp_id = compId;
+		S_timer_active = true;
+		
+		ULARGE_INTEGER dueTime;
+		dueTime.QuadPart = (ULONGLONG)(-(LONGLONG)(DOUBLE_CLICK_MS * 10000));  // Relative time in 100ns units
+		FILETIME ft;
+		ft.dwLowDateTime = dueTime.LowPart;
+		ft.dwHighDateTime = dueTime.HighPart;
+		SetThreadpoolTimer(S_timer, &ft, 0, 0);
+		
+		LeaveCriticalSection(&S_cs);
+	}
+}
+
+#endif
+
+//=============================================================================
+// Idle Hook - Selection monitoring and double-click detection (macOS)
 //=============================================================================
 
 static A_Err IdleHook(
@@ -472,56 +449,53 @@ static A_Err IdleHook(
 					ERR(GetLayerNameStr(suites, currentLayer, name));
 					
 					if (!err && IsDividerLayer(name)) {
-						// Check if this is a reselection of same divider after deselection
-						if (S_selection_ended && 
-						    currentIndex == S_tracked_layer_index && 
-						    compId == S_tracked_comp_id) {
+						// Divider layer is selected
+						if (!S_layer_was_selected) {
+							// Layer just became selected
+							S_layer_was_selected = true;
 							
-							A_long elapsed = S_idle_counter - S_selection_start_tick;
-							if (elapsed < RESELECT_WINDOW) {
-								// This is a double-click! Toggle fold state
-								bool isFolded = IsDividerFolded(name);
-								ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
-								ERR(FoldDivider(suites, compH, currentLayer, currentIndex, !isFolded));
-								ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+#ifdef AE_OS_WIN
+							CheckDoubleClick(currentIndex, compId);
+#else
+							// macOS: Check if this is a double-click
+							A_long elapsed = S_idle_counter - S_last_click_tick;
+							if (S_tracked_layer_index == currentIndex && 
+							    S_tracked_comp_id == compId &&
+							    elapsed < DOUBLE_CLICK_TICKS) {
+								// Double-click detected!
+								ToggleSelectedDividers(suites);
+								S_tracked_layer_index = -1;
 							}
-							
-							// Reset
-							S_selection_ended = false;
-							S_tracked_layer_index = -1;
+							else {
+								// First click
+								S_tracked_layer_index = currentIndex;
+								S_tracked_comp_id = compId;
+								S_last_click_tick = S_idle_counter;
+							}
+#endif
 						}
-						
-						// Track this selection
-						S_tracked_layer_index = currentIndex;
-						S_tracked_comp_id = compId;
-						S_selection_start_tick = S_idle_counter;
-						S_selection_ended = false;
-					} else {
-						// Not a divider - reset
+					}
+					else {
+						// Not a divider
+						S_layer_was_selected = false;
 						S_tracked_layer_index = -1;
-						S_selection_ended = false;
 					}
 				}
-			} else if (numSelected == 0) {
-				// Selection ended - mark it
-				if (S_tracked_layer_index >= 0) {
-					S_selection_ended = true;
-					S_selection_start_tick = S_idle_counter;
-				}
-			} else {
-				// Multiple selection - reset
-				S_tracked_layer_index = -1;
-				S_selection_ended = false;
+			}
+			else {
+				// No selection or multiple selection
+				S_layer_was_selected = false;
 			}
 			
 			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		}
-	} else {
+	}
+	else {
+		S_layer_was_selected = false;
 		S_tracked_layer_index = -1;
-		S_selection_ended = false;
 	}
 	
-	*max_sleepPL = 50;  // Check frequently for responsive double-click
+	*max_sleepPL = 50;
 	return A_Err_NONE;
 }
 
@@ -538,8 +512,6 @@ static A_Err UpdateMenuHook(
 	AEGP_SuiteHandler suites(sP);
 	
 	ERR(suites.CommandSuite1()->AEGP_EnableCommand(S_cmd_create_divider));
-	ERR(suites.CommandSuite1()->AEGP_EnableCommand(S_cmd_fold));
-	ERR(suites.CommandSuite1()->AEGP_EnableCommand(S_cmd_unfold));
 	ERR(suites.CommandSuite1()->AEGP_EnableCommand(S_cmd_fold_unfold));
 	
 	return err;
@@ -559,14 +531,6 @@ static A_Err CommandHook(
 	try {
 		if (command == S_cmd_create_divider) {
 			err = DoCreateDivider(suites);
-			*handledPB = TRUE;
-		}
-		else if (command == S_cmd_fold) {
-			err = DoFoldGroup(suites);
-			*handledPB = TRUE;
-		}
-		else if (command == S_cmd_unfold) {
-			err = DoUnfoldGroup(suites);
 			*handledPB = TRUE;
 		}
 		else if (command == S_cmd_fold_unfold) {
@@ -597,35 +561,30 @@ A_Err EntryPointFunc(
 	sP = pica_basicP;
 	S_my_id = aegp_plugin_id;
 	
+	// Initialize state
 	S_tracked_layer_index = -1;
 	S_tracked_comp_id = 0;
-	S_selection_start_tick = 0;
 	S_idle_counter = 0;
-	S_selection_ended = false;
+	S_layer_was_selected = false;
+	
+#ifdef AE_OS_WIN
+	// Initialize Windows timer
+	InitializeCriticalSection(&S_cs);
+	S_timer = CreateThreadpoolTimer(TimerCallback, NULL, NULL);
+	S_timer_active = false;
+#else
+	S_last_click_tick = 0;
+#endif
 	
 	AEGP_SuiteHandler suites(sP);
 	
 	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_create_divider));
-	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_fold));
-	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_unfold));
 	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_fold_unfold));
 	
 	if (!err) {
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_create_divider,
 			"Create Group Divider",
-			AEGP_Menu_LAYER,
-			AEGP_MENU_INSERT_SORTED));
-		
-		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
-			S_cmd_fold,
-			"Fold Group",
-			AEGP_Menu_LAYER,
-			AEGP_MENU_INSERT_SORTED));
-		
-		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
-			S_cmd_unfold,
-			"Unfold Group",
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		
