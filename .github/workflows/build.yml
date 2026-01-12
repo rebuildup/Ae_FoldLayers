@@ -506,6 +506,7 @@ jobs:
           
           if [ -n "$PLUGIN_PATH" ]; then
             echo "Generating PiPL resource..."
+            chmod +x "$PLUGIN_DIR/Mac/build_pipl.sh"
             "$PLUGIN_DIR/Mac/build_pipl.sh" "$PLUGIN_DIR" "$PLUGIN_PATH" "$SDK_ROOT"
 
             echo "=== Verifying Plugin Bundle Structure ==="
