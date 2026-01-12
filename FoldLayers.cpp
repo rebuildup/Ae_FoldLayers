@@ -9,7 +9,7 @@
 /*      - Uses shape layer (no path) as divider                    */
 /*      - Divider is set to VIDEO_OFF (invisible)                  */
 /*      - Uses ▸ (folded) and ▾ (unfolded) characters              */
-/*      - Double-click = deselect then reselect quickly            */
+/*      - Double-click = click, deselect, click again quickly      */
 /*                                                                 */
 /*******************************************************************/
 
@@ -27,20 +27,15 @@ static SPBasicSuite		*sP					= NULL;
 static AEGP_Command		S_cmd_create_divider	= 0;
 static AEGP_Command		S_cmd_fold_unfold		= 0;
 
-// Double-click detection state
-static A_long			S_prev_layer_index		= -1;
-static A_long			S_prev_comp_id			= 0;
-static A_long			S_deselect_tick			= 0;
+// Double-click detection state machine
+// States: 0=IDLE, 1=DIVIDER_SELECTED, 2=WAITING_RESELECT
+static int				S_state					= 0;
+static A_long			S_tracked_layer_index	= -1;
+static A_long			S_tracked_comp_id		= 0;
+static A_long			S_state_change_tick		= 0;
 static A_long			S_idle_counter			= 0;
-static bool				S_just_deselected		= false;
 
-#ifdef AE_OS_WIN
-static PTP_TIMER		S_timer					= NULL;
-static CRITICAL_SECTION	S_cs;
-static bool				S_cs_initialized		= false;
-#endif
-
-static const A_long		DOUBLE_CLICK_TICKS		= 30;  // ~1.5 seconds window
+static const A_long		DOUBLE_CLICK_TICKS		= 40;  // ~2 seconds window
 
 //=============================================================================
 // Helper Functions
@@ -374,7 +369,11 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 }
 
 //=============================================================================
-// Idle Hook - Double-click detection via deselect->reselect pattern
+// Idle Hook - State machine for double-click detection
+// 
+// State 0 (IDLE): No divider tracked
+// State 1 (SELECTED): A divider is currently selected, tracking it
+// State 2 (WAITING): Divider was deselected, waiting for reselection
 //=============================================================================
 
 static A_Err IdleHook(
@@ -392,8 +391,8 @@ static A_Err IdleHook(
 	ERR(GetActiveComp(suites, &compH));
 	
 	if (err || !compH) {
-		S_prev_layer_index = -1;
-		S_just_deselected = false;
+		S_state = 0;
+		S_tracked_layer_index = -1;
 		*max_sleepPL = 100;
 		return A_Err_NONE;
 	}
@@ -418,59 +417,79 @@ static A_Err IdleHook(
 	
 	ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
 	
-	if (!err) {
-		if (numSelected == 1) {
-			// Single layer selected
-			AEGP_CollectionItemV2 item;
-			ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
+	// Determine what's currently selected
+	A_long currentDividerIndex = -1;
+	if (!err && numSelected == 1) {
+		AEGP_CollectionItemV2 item;
+		ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
+		
+		if (!err && item.type == AEGP_CollectionItemType_LAYER) {
+			A_long idx = 0;
+			ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
 			
-			if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-				A_long currentIndex = 0;
-				ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &currentIndex));
-				
-				std::string name;
-				ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-				
-				if (!err && IsDividerLayer(name)) {
-					// A divider is selected
-					if (S_just_deselected && 
-					    currentIndex == S_prev_layer_index && 
-					    compId == S_prev_comp_id) {
-						// This is a reselection after deselection - double-click!
-						A_long elapsed = S_idle_counter - S_deselect_tick;
-						if (elapsed < DOUBLE_CLICK_TICKS) {
-							// Toggle!
-							ToggleDividerAtIndex(suites, compH, currentIndex);
-						}
-					}
-					
-					// Remember this selection
-					S_prev_layer_index = currentIndex;
-					S_prev_comp_id = compId;
-					S_just_deselected = false;
-				}
-				else {
-					// Not a divider - forget
-					S_prev_layer_index = -1;
-					S_just_deselected = false;
-				}
+			std::string name;
+			ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
+			
+			if (!err && IsDividerLayer(name)) {
+				currentDividerIndex = idx;
 			}
-		}
-		else if (numSelected == 0) {
-			// Nothing selected - mark as deselected if we were tracking a divider
-			if (S_prev_layer_index >= 0) {
-				S_just_deselected = true;
-				S_deselect_tick = S_idle_counter;
-			}
-		}
-		else {
-			// Multiple selection - forget
-			S_prev_layer_index = -1;
-			S_just_deselected = false;
 		}
 	}
 	
 	suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+	
+	// State machine
+	switch (S_state) {
+		case 0:  // IDLE
+			if (currentDividerIndex >= 0) {
+				// A divider just got selected - start tracking
+				S_tracked_layer_index = currentDividerIndex;
+				S_tracked_comp_id = compId;
+				S_state = 1;
+			}
+			break;
+			
+		case 1:  // SELECTED - a divider is selected
+			if (currentDividerIndex < 0) {
+				// Selection was cleared - move to waiting state
+				S_state_change_tick = S_idle_counter;
+				S_state = 2;
+			}
+			else if (currentDividerIndex != S_tracked_layer_index || compId != S_tracked_comp_id) {
+				// Different divider selected - track the new one
+				S_tracked_layer_index = currentDividerIndex;
+				S_tracked_comp_id = compId;
+			}
+			// else: same divider still selected, keep waiting
+			break;
+			
+		case 2:  // WAITING - divider was deselected, waiting for reselect
+			if (currentDividerIndex >= 0) {
+				// Something got selected
+				if (currentDividerIndex == S_tracked_layer_index && compId == S_tracked_comp_id) {
+					// Same divider reselected - check timing
+					A_long elapsed = S_idle_counter - S_state_change_tick;
+					if (elapsed < DOUBLE_CLICK_TICKS) {
+						// DOUBLE-CLICK! Toggle the divider
+						ToggleDividerAtIndex(suites, compH, currentDividerIndex);
+					}
+				}
+				// Either way, now tracking the newly selected divider
+				S_tracked_layer_index = currentDividerIndex;
+				S_tracked_comp_id = compId;
+				S_state = 1;
+			}
+			else {
+				// Still nothing selected - check timeout
+				A_long elapsed = S_idle_counter - S_state_change_tick;
+				if (elapsed >= DOUBLE_CLICK_TICKS) {
+					// Timeout - go back to idle
+					S_state = 0;
+					S_tracked_layer_index = -1;
+				}
+			}
+			break;
+	}
 	
 	*max_sleepPL = 50;
 	return A_Err_NONE;
@@ -538,17 +557,12 @@ A_Err EntryPointFunc(
 	sP = pica_basicP;
 	S_my_id = aegp_plugin_id;
 	
-	// Initialize state
-	S_prev_layer_index = -1;
-	S_prev_comp_id = 0;
-	S_deselect_tick = 0;
+	// Initialize state machine
+	S_state = 0;
+	S_tracked_layer_index = -1;
+	S_tracked_comp_id = 0;
+	S_state_change_tick = 0;
 	S_idle_counter = 0;
-	S_just_deselected = false;
-	
-#ifdef AE_OS_WIN
-	InitializeCriticalSection(&S_cs);
-	S_cs_initialized = true;
-#endif
 	
 	AEGP_SuiteHandler suites(sP);
 	
