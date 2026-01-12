@@ -33,7 +33,8 @@ typedef enum {
 	StrID_NUMTYPES
 } StrIDType;
 
-char *GetStringPtr(int strNum);
+// Use different name to avoid conflict with SDK's String_Utils.h
+char *FoldLayers_GetStringPtr(int strNum);
 
 // Macro for easy access
-#define STR(id) GetStringPtr(id)
+#define STR(id) FoldLayers_GetStringPtr(id)

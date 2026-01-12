@@ -63,7 +63,6 @@ static bool IsGroupFolded(const std::string& name)
 // Parse hierarchy from group name: "▼(1/A) Name" -> "1/A"
 static std::string ParseHierarchy(const std::string& name)
 {
-	// Find opening and closing parentheses after prefix
 	size_t start = name.find('(');
 	size_t end = name.find(')');
 	
@@ -77,7 +76,7 @@ static std::string ParseHierarchy(const std::string& name)
 static std::string ParseGroupName(const std::string& fullName)
 {
 	// Skip prefix (4 bytes: 3 for triangle + 1 for space)
-	if (fullName.length() <= 4) return "";
+	if (fullName.length() <= 4) return "FoldGroup";
 	
 	std::string rest = fullName.substr(4);
 	
@@ -90,56 +89,25 @@ static std::string ParseGroupName(const std::string& fullName)
 }
 
 // Generate next hierarchy level
-// Parent "1" -> Child "1/A"
-// Parent "1/A" -> Child "1/A/a" (lowercase for deeper levels)
 static std::string GenerateChildHierarchy(const std::string& parentHierarchy)
 {
 	if (parentHierarchy.empty()) {
-		return "1";  // First top-level group
+		return "1";
 	}
 	
-	// Count depth by counting separators
 	int depth = 1;
 	for (char c : parentHierarchy) {
 		if (c == '/') depth++;
 	}
 	
-	// Generate next identifier at this depth level
 	char nextId;
 	if (depth == 1) {
-		nextId = 'A';  // Second level uses A, B, C...
+		nextId = 'A';
 	} else {
-		nextId = 'a';  // Third level uses a, b, c...
+		nextId = 'a';
 	}
 	
 	return parentHierarchy + "/" + nextId;
-}
-
-// Generate next sibling hierarchy
-// "1" -> "2", "1/A" -> "1/B", "1/A/a" -> "1/A/b"
-static std::string GenerateSiblingHierarchy(const std::string& hierarchy)
-{
-	if (hierarchy.empty()) return "1";
-	
-	// Find last segment
-	size_t lastSep = hierarchy.rfind('/');
-	if (lastSep == std::string::npos) {
-		// Top level: "1" -> "2"
-		int num = std::stoi(hierarchy);
-		return std::to_string(num + 1);
-	}
-	
-	std::string parent = hierarchy.substr(0, lastSep);
-	std::string lastPart = hierarchy.substr(lastSep + 1);
-	
-	// Increment last character
-	if (!lastPart.empty()) {
-		char lastChar = lastPart[0];
-		lastChar++;
-		return parent + "/" + lastChar;
-	}
-	
-	return hierarchy;
 }
 
 // Build group layer name
@@ -155,16 +123,6 @@ static std::string BuildGroupName(bool folded, const std::string& hierarchy, con
 	
 	result += name;
 	return result;
-}
-
-// Check if child hierarchy is under parent
-static bool IsChildOf(const std::string& childHier, const std::string& parentHier)
-{
-	if (parentHier.empty() || childHier.empty()) return false;
-	if (childHier.length() <= parentHier.length()) return false;
-	
-	// Child must start with parent + "/"
-	return childHier.substr(0, parentHier.length() + 1) == parentHier + "/";
 }
 
 //=============================================================================
@@ -189,18 +147,18 @@ static A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
 	return err;
 }
 
-static A_Err GetLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std::string& name)
+static A_Err GetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std::string& name)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_MemHandle nameH = NULL;
+	AEGP_MemHandle sourceH = NULL;
 	A_UTF16Char* nameP = NULL;
 	
-	ERR(suites.LayerSuite9()->AEGP_GetLayerName(layerH, &nameH, NULL));
+	ERR(suites.LayerSuite9()->AEGP_GetLayerName(S_my_id, layerH, &nameH, &sourceH));
 	
 	if (!err && nameH) {
 		ERR(suites.MemorySuite1()->AEGP_LockMemHandle(nameH, (void**)&nameP));
 		if (!err && nameP) {
-			// Convert UTF-16 to UTF-8 (simplified)
 			std::string result;
 			while (*nameP) {
 				if (*nameP < 0x80) {
@@ -220,15 +178,17 @@ static A_Err GetLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std::st
 		}
 		suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
 	}
+	if (sourceH) {
+		suites.MemorySuite1()->AEGP_FreeMemHandle(sourceH);
+	}
 	
 	return err;
 }
 
-static A_Err SetLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
+static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
 {
 	A_Err err = A_Err_NONE;
 	
-	// Convert UTF-8 to UTF-16 (simplified)
 	std::vector<A_UTF16Char> utf16;
 	const unsigned char* p = (const unsigned char*)name.c_str();
 	
@@ -245,7 +205,7 @@ static A_Err SetLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const s
 			if (*p) c |= (*p++ & 0x3F);
 			utf16.push_back(c);
 		} else {
-			p++; // Skip unsupported sequences
+			p++;
 		}
 	}
 	utf16.push_back(0);
@@ -269,7 +229,6 @@ static A_Err DoCreateGroup(AEGP_SuiteHandler& suites)
 	ERR(GetActiveComp(suites, &compH));
 	if (!compH) return A_Err_GENERIC;
 	
-	// Get selected layers
 	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
 	if (!err && collectionH) {
 		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
@@ -281,27 +240,24 @@ static A_Err DoCreateGroup(AEGP_SuiteHandler& suites)
 		return A_Err_NONE;
 	}
 	
-	// Check if selecting an existing group layer (for nested group creation)
 	std::string parentHierarchy = "";
 	if (numSelected == 1) {
 		AEGP_CollectionItemV2 item;
 		ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
 		if (!err && item.type == AEGP_CollectionItemType_LAYER) {
 			std::string layerName;
-			ERR(GetLayerName(suites, item.u.layer.layerH, layerName));
+			ERR(GetLayerNameStr(suites, item.u.layer.layerH, layerName));
 			if (!err && IsFoldGroupLayer(layerName)) {
 				parentHierarchy = ParseHierarchy(layerName);
 			}
 		}
 	}
 	
-	// Begin undo group
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Fold Group"));
 	
 	// Find highest existing hierarchy number at current level
 	std::string newHierarchy;
 	if (parentHierarchy.empty()) {
-		// Find max top-level group number
 		A_long numLayers = 0;
 		int maxNum = 0;
 		ERR(suites.LayerSuite9()->AEGP_GetCompNumLayers(compH, &numLayers));
@@ -311,7 +267,7 @@ static A_Err DoCreateGroup(AEGP_SuiteHandler& suites)
 			ERR(suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &checkLayer));
 			if (!err && checkLayer) {
 				std::string checkName;
-				ERR(GetLayerName(suites, checkLayer, checkName));
+				ERR(GetLayerNameStr(suites, checkLayer, checkName));
 				if (!err && IsFoldGroupLayer(checkName)) {
 					std::string hier = ParseHierarchy(checkName);
 					if (!hier.empty() && hier.find('/') == std::string::npos) {
@@ -325,61 +281,58 @@ static A_Err DoCreateGroup(AEGP_SuiteHandler& suites)
 		}
 		newHierarchy = std::to_string(maxNum + 1);
 	} else {
-		// Creating child of existing group
 		newHierarchy = GenerateChildHierarchy(parentHierarchy);
 	}
 	
-	// Create NULL layer as group parent
+	// Get first selected layer to use as reference for creating group layer
+	AEGP_CollectionItemV2 firstItem;
+	AEGP_LayerH firstLayerH = NULL;
+	A_long firstLayerIndex = 0;
+	
+	ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &firstItem));
+	if (!err && firstItem.type == AEGP_CollectionItemType_LAYER) {
+		firstLayerH = firstItem.u.layer.layerH;
+		ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(firstLayerH, &firstLayerIndex));
+	}
+	
+	// Create a NULL object using CompSuite
 	AEGP_LayerH newLayer = NULL;
-	ERR(suites.LayerSuite9()->AEGP_CreateSolidInComp(
-		NULL,  // No name initially
-		0, 0, 0,  // RGB color
+	ERR(suites.CompSuite11()->AEGP_CreateNullInComp(
 		compH,
-		NULL,  // Duration
-		NULL,  // In point
+		NULL,  // name (set later)
+		NULL,  // duration (null = comp duration)
 		&newLayer
 	));
 	
-	// Actually we need to create a NULL object, not a solid
-	// Let's use a different approach - just create a null
-	// AEGP doesn't have direct null creation, so we'll use a null marker in the name
-	
-	// Set layer name with fold prefix
-	std::string groupName = BuildGroupName(false, newHierarchy, "FoldGroup");
-	ERR(SetLayerName(suites, newLayer, groupName));
-	
-	// Get layer index of new layer
-	A_long newLayerIndex = 0;
-	ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(newLayer, &newLayerIndex));
-	
-	// Set shy flag on all selected layers
-	for (A_u_long i = 0; i < numSelected && !err; i++) {
-		AEGP_CollectionItemV2 item;
-		ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
-		if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-			// Set shy flag
-			ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(
-				item.u.layer.layerH, 
-				AEGP_LayerFlag_SHY, 
-				TRUE
-			));
-			
-			// Parent to the group null (optional, helps with organization)
-			ERR(suites.LayerSuite9()->AEGP_SetLayerParent(
-				item.u.layer.layerH,
-				newLayer
-			));
+	if (!err && newLayer) {
+		// Set layer name with fold prefix
+		std::string groupName = BuildGroupName(false, newHierarchy, "FoldGroup");
+		ERR(SetLayerNameStr(suites, newLayer, groupName));
+		
+		// Move group layer to be above the first selected layer
+		if (firstLayerIndex > 0) {
+			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, firstLayerIndex));
+		}
+		
+		// Set shy flag on all selected layers and parent them
+		for (A_u_long i = 0; i < numSelected && !err; i++) {
+			AEGP_CollectionItemV2 item;
+			ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
+			if (!err && item.type == AEGP_CollectionItemType_LAYER) {
+				ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(
+					item.u.layer.layerH, 
+					AEGP_LayerFlag_SHY, 
+					TRUE
+				));
+				
+				ERR(suites.LayerSuite9()->AEGP_SetLayerParent(
+					item.u.layer.layerH,
+					newLayer
+				));
+			}
 		}
 	}
 	
-	// Enable "Hide Shy Layers" on comp
-	AEGP_CompFlags compFlags = 0;
-	ERR(suites.CompSuite11()->AEGP_GetCompFlags(compH, &compFlags));
-	if (!(compFlags & AEGP_CompFlag_SHOW_ALL_SHY)) {
-		ERR(suites.CompSuite11()->AEGP_SetCompFlags(compH, compFlags | AEGP_CompFlag_SHOW_ALL_SHY));
-	}
-	
-	// End undo group
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
 	
 	if (collectionH) {
@@ -401,7 +354,6 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 	ERR(GetActiveComp(suites, &compH));
 	if (!compH) return A_Err_GENERIC;
 	
-	// Get selected layers
 	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
 	if (!err && collectionH) {
 		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
@@ -412,7 +364,6 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 		return A_Err_NONE;
 	}
 	
-	// Get first selected layer
 	AEGP_CollectionItemV2 item;
 	ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
 	if (err || item.type != AEGP_CollectionItemType_LAYER) {
@@ -422,7 +373,7 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 	
 	AEGP_LayerH groupLayer = item.u.layer.layerH;
 	std::string layerName;
-	ERR(GetLayerName(suites, groupLayer, layerName));
+	ERR(GetLayerNameStr(suites, groupLayer, layerName));
 	
 	if (!IsFoldGroupLayer(layerName)) {
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_Error_NotAGroup));
@@ -434,12 +385,11 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 	std::string hierarchy = ParseHierarchy(layerName);
 	std::string groupName = ParseGroupName(layerName);
 	
-	// Begin undo
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup(currentlyFolded ? "Unfold Group" : "Fold Group"));
 	
 	// Toggle fold state - update layer name prefix
 	std::string newName = BuildGroupName(!currentlyFolded, hierarchy, groupName);
-	ERR(SetLayerName(suites, groupLayer, newName));
+	ERR(SetLayerNameStr(suites, groupLayer, newName));
 	
 	// Toggle shy flags on child layers
 	A_long numLayers = 0;
@@ -449,44 +399,19 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 		AEGP_LayerH checkLayer;
 		ERR(suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &checkLayer));
 		if (!err && checkLayer && checkLayer != groupLayer) {
-			// Check if this layer is parented to our group
 			AEGP_LayerH parentLayer = NULL;
 			ERR(suites.LayerSuite9()->AEGP_GetLayerParent(checkLayer, &parentLayer));
 			
 			if (!err && parentLayer == groupLayer) {
-				// Toggle shy flag based on new fold state
 				if (!currentlyFolded) {
 					// Folding: set shy
 					ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(checkLayer, AEGP_LayerFlag_SHY, TRUE));
 				} else {
-					// Unfolding: clear shy (but only if not a nested folded group)
-					std::string childName;
-					ERR(GetLayerName(suites, checkLayer, childName));
-					
-					// Only unhide if it's not a collapsed child group OR not a group at all
-					bool isChildGroup = IsFoldGroupLayer(childName);
-					if (!isChildGroup) {
-						ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(checkLayer, AEGP_LayerFlag_SHY, FALSE));
-					} else if (isChildGroup && !IsGroupFolded(childName)) {
-						// Child group is expanded, so show it
-						ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(checkLayer, AEGP_LayerFlag_SHY, FALSE));
-					}
-					// else: child group is folded, keep it visible (group header visible)
-					else {
-						ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(checkLayer, AEGP_LayerFlag_SHY, FALSE));
-					}
+					// Unfolding: clear shy
+					ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(checkLayer, AEGP_LayerFlag_SHY, FALSE));
 				}
 			}
 		}
-	}
-	
-	// Update comp shy display
-	AEGP_CompFlags compFlags = 0;
-	ERR(suites.CompSuite11()->AEGP_GetCompFlags(compH, &compFlags));
-	
-	// Ensure shy layers are hidden
-	if (!(compFlags & AEGP_CompFlag_SHOW_ALL_SHY)) {
-		ERR(suites.CompSuite11()->AEGP_SetCompFlags(compH, compFlags | AEGP_CompFlag_SHOW_ALL_SHY));
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
@@ -511,7 +436,6 @@ static A_Err DoDeleteGroup(AEGP_SuiteHandler& suites)
 	ERR(GetActiveComp(suites, &compH));
 	if (!compH) return A_Err_GENERIC;
 	
-	// Get selected layers
 	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
 	if (!err && collectionH) {
 		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
@@ -522,7 +446,6 @@ static A_Err DoDeleteGroup(AEGP_SuiteHandler& suites)
 		return A_Err_NONE;
 	}
 	
-	// Get first selected layer
 	AEGP_CollectionItemV2 item;
 	ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
 	if (err || item.type != AEGP_CollectionItemType_LAYER) {
@@ -532,7 +455,7 @@ static A_Err DoDeleteGroup(AEGP_SuiteHandler& suites)
 	
 	AEGP_LayerH groupLayer = item.u.layer.layerH;
 	std::string layerName;
-	ERR(GetLayerName(suites, groupLayer, layerName));
+	ERR(GetLayerNameStr(suites, groupLayer, layerName));
 	
 	if (!IsFoldGroupLayer(layerName)) {
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, STR(StrID_Error_NotAGroup));
@@ -540,7 +463,6 @@ static A_Err DoDeleteGroup(AEGP_SuiteHandler& suites)
 		return A_Err_NONE;
 	}
 	
-	// Begin undo
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Delete Fold Group"));
 	
 	// Unparent and unhide all child layers
@@ -555,9 +477,7 @@ static A_Err DoDeleteGroup(AEGP_SuiteHandler& suites)
 			ERR(suites.LayerSuite9()->AEGP_GetLayerParent(checkLayer, &parentLayer));
 			
 			if (!err && parentLayer == groupLayer) {
-				// Clear shy flag
 				ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(checkLayer, AEGP_LayerFlag_SHY, FALSE));
-				// Unparent
 				ERR(suites.LayerSuite9()->AEGP_SetLayerParent(checkLayer, NULL));
 			}
 		}
@@ -590,24 +510,23 @@ static A_Err DoFoldAll(AEGP_SuiteHandler& suites, bool fold)
 	A_long numLayers = 0;
 	ERR(suites.LayerSuite9()->AEGP_GetCompNumLayers(compH, &numLayers));
 	
-	// First pass: update group layer names
+	// First pass: find all group layers and update names
 	std::vector<AEGP_LayerH> groupLayers;
 	for (A_long i = 0; i < numLayers && !err; i++) {
 		AEGP_LayerH layer;
 		ERR(suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &layer));
 		if (!err && layer) {
 			std::string name;
-			ERR(GetLayerName(suites, layer, name));
+			ERR(GetLayerNameStr(suites, layer, name));
 			if (!err && IsFoldGroupLayer(name)) {
 				groupLayers.push_back(layer);
 				
-				// Update name to folded/unfolded state
 				bool currentFolded = IsGroupFolded(name);
 				if (currentFolded != fold) {
 					std::string hier = ParseHierarchy(name);
 					std::string groupName = ParseGroupName(name);
 					std::string newName = BuildGroupName(fold, hier, groupName);
-					ERR(SetLayerName(suites, layer, newName));
+					ERR(SetLayerNameStr(suites, layer, newName));
 				}
 			}
 		}
@@ -626,13 +545,6 @@ static A_Err DoFoldAll(AEGP_SuiteHandler& suites, bool fold)
 				}
 			}
 		}
-	}
-	
-	// Ensure comp shy setting is correct
-	AEGP_CompFlags compFlags = 0;
-	ERR(suites.CompSuite11()->AEGP_GetCompFlags(compH, &compFlags));
-	if (!(compFlags & AEGP_CompFlag_SHOW_ALL_SHY)) {
-		ERR(suites.CompSuite11()->AEGP_SetCompFlags(compH, compFlags | AEGP_CompFlag_SHOW_ALL_SHY));
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
@@ -655,7 +567,6 @@ static A_Err UpdateMenuHook(
 	A_Err err = A_Err_NONE;
 	AEGP_SuiteHandler suites(sP);
 	
-	// Enable all commands (we'll show error messages if context is wrong)
 	if (S_cmd_create_group) {
 		ERR(suites.CommandSuite1()->AEGP_EnableCommand(S_cmd_create_group));
 	}
@@ -729,7 +640,6 @@ A_Err EntryPointFunc(
 	
 	AEGP_SuiteHandler suites(sP);
 	
-	// Register menu commands
 	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_create_group));
 	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_fold_unfold));
 	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_delete_group));
@@ -737,7 +647,6 @@ A_Err EntryPointFunc(
 	ERR(suites.CommandSuite1()->AEGP_GetUniqueCommand(&S_cmd_unfold_all));
 	
 	if (!err) {
-		// Add to Layer menu
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_create_group,
 			STR(StrID_Menu_CreateGroup),
@@ -768,7 +677,6 @@ A_Err EntryPointFunc(
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		
-		// Register hooks
 		ERR(suites.RegisterSuite5()->AEGP_RegisterCommandHook(
 			S_my_id,
 			AEGP_HP_BeforeAE,

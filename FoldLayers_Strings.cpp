@@ -9,7 +9,7 @@ typedef struct {
 	A_char		str[256];
 } TableString;
 
-TableString g_strs[StrID_NUMTYPES] = {
+static TableString g_strs[StrID_NUMTYPES] = {
 	{StrID_NONE,					""},
 	
 	// Menu items - will appear in Layer menu
@@ -37,7 +37,7 @@ TableString g_strs[StrID_NUMTYPES] = {
 	{StrID_GroupPrefix_Unfolded,	"\xE2\x96\xBC "}   // ▼ (UTF-8)
 };
 
-char *GetStringPtr(int strNum)
+char *FoldLayers_GetStringPtr(int strNum)
 {
 	return g_strs[strNum].str;
 }
