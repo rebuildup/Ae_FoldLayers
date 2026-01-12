@@ -1,10 +1,18 @@
+/*******************************************************************/
+/*  FoldLayers PiPL (Plug-in Property List)                        */
+/*  AEGP Plugin for After Effects                                  */
+/*  Developer: 361do_plugins                                       */
+/*  https://github.com/rebuildup                                   */
+/*******************************************************************/
+
 #include "AEConfig.h"
 
 #ifndef AE_OS_WIN
 	#include "AE_General.r"
 #endif
+
 resource 'PiPL' (16000) {
-	{	/* array properties: 7 elements */
+	{	/* array properties */
 		/* [1] */
 		Kind {
 			AEGP
@@ -15,13 +23,13 @@ resource 'PiPL' (16000) {
 		},
 		/* [3] */
 		Category {
-			"General Plugin"
+			"361do_plugins"
 		},
 		/* [4] */
 		Version {
-			65536
+			65536	/* 1.0 */
 		},
-		/* [5] */
+		/* [5] Code entry points */
 #ifdef AE_OS_WIN
     #if defined(AE_PROC_INTELx64)
 		CodeWin64X86 {"EntryPointFunc"},

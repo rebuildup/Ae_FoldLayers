@@ -1,25 +1,19 @@
 /*******************************************************************/
 /*                                                                 */
-/*                      ADOBE CONFIDENTIAL                         */
-/*                   _ _ _ _ _ _ _ _ _ _ _ _ _                     */
-/*                                                                 */
-/* Copyright 2007-2023 Adobe Inc.                                  */
-/* All Rights Reserved.                                            */
-/*                                                                 */
-/* NOTICE:  All information contained herein is, and remains the   */
-/* property of Adobe Inc. and its suppliers, if                    */
-/* any.  The intellectual and technical concepts contained         */
-/* herein are proprietary to Adobe Inc. and its                    */
-/* suppliers and may be covered by U.S. and Foreign Patents,       */
-/* patents in process, and are protected by trade secret or        */
-/* copyright law.  Dissemination of this information or            */
-/* reproduction of this material is strictly forbidden unless      */
-/* prior written permission is obtained from Adobe Inc.            */
-/* Incorporated.                                                   */
+/*      FoldLayers - AEGP Plugin for After Effects                 */
+/*      Recreates GM FoldLayers functionality                      */
+/*      Developer: 361do_plugins                                   */
+/*      https://github.com/rebuildup                               */
 /*                                                                 */
 /*******************************************************************/
 
+#pragma once
+
+#ifndef FOLDLAYERS_H
+#define FOLDLAYERS_H
+
 #include "AEConfig.h"
+
 #ifdef AE_OS_WIN
 	#define VC_EXTRALEAN
 	#include <io.h>
@@ -39,12 +33,35 @@
 #include "FoldLayers_Strings.h"
 #include "String_Utils.h"
 
-#define DEFAULT_FUZZINESS 3.286
+#include <string>
+#include <vector>
+#include <regex>
 
+// Version info
+#define FOLDLAYERS_MAJOR_VERSION	1
+#define FOLDLAYERS_MINOR_VERSION	0
+#define FOLDLAYERS_BUG_VERSION		0
+
+// Group hierarchy constants
+#define MAX_HIERARCHY_DEPTH		26	// a-z for sub-levels
+#define GROUP_MARKER_START		"("
+#define GROUP_MARKER_END		")"
+#define GROUP_HIERARCHY_SEP		"/"
+
+// Unicode prefix characters (UTF-8)
+#define PREFIX_FOLDED			"\xE2\x96\xB6 "	// ▶ 
+#define PREFIX_UNFOLDED			"\xE2\x96\xBC "	// ▼ 
+
+// Structure for group info
 typedef struct {
-	A_u_long		index;
-	A_char			str[256];
-} TableString;
+	std::string		hierarchy;		// e.g., "1", "1/A", "1/A/i"
+	std::string		name;			// User-defined group name
+	bool			isFolded;		// Current fold state
+	AEGP_LayerH		layerH;			// Handle to group layer
+	A_long			layerIndex;		// Index in comp
+} FoldGroupInfo;
 
 // This entry point is exported through the PiPL (.r file)
 extern "C" DllExport AEGP_PluginInitFuncPrototype EntryPointFunc;
+
+#endif // FOLDLAYERS_H

@@ -1,18 +1,39 @@
 // FoldLayers_Strings.h
+// String IDs for FoldLayers AEGP plugin
 
 #pragma once
 
 typedef enum {
-	StrID_NONE, 
-	StrID_Menu_Item,
-	StrID_Section_Key,
-	StrID_Value_Key_1,
-	StrID_Value_Key_2,
-	StrID_DefaultString,
-	StrID_NewValueAdded,
-	StrID_ValueExisted,
-	StrID_DifferentValueSet,
-	StrID_Error,
+	StrID_NONE = 0,
+	
+	// Menu items
+	StrID_Menu_CreateGroup,
+	StrID_Menu_FoldUnfold,
+	StrID_Menu_DeleteGroup,
+	StrID_Menu_FoldAll,
+	StrID_Menu_UnfoldAll,
+	
+	// Status messages
+	StrID_GroupCreated,
+	StrID_GroupDeleted,
+	StrID_Folded,
+	StrID_Unfolded,
+	StrID_AllFolded,
+	StrID_AllUnfolded,
+	
+	// Errors
+	StrID_Error_NoSelection,
+	StrID_Error_NotAGroup,
+	StrID_Error_Registration,
+	
+	// Group name prefix
+	StrID_GroupPrefix_Folded,
+	StrID_GroupPrefix_Unfolded,
+	
 	StrID_NUMTYPES
 } StrIDType;
 
+char *GetStringPtr(int strNum);
+
+// Macro for easy access
+#define STR(id) GetStringPtr(id)

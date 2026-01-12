@@ -5,7 +5,7 @@
 	<key>CFBundleExecutable</key>
 	<string>FoldLayers</string>
 	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<string>com.361do.aftereffects.FoldLayers</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -13,12 +13,16 @@
 	<key>CFBundlePackageType</key>
 	<string>AEgx</string>
 	<key>CFBundleSignature</key>
-	<string>FXTC</string>
-	<key>LSRequiresCarbon</key>
-	<true/>
+	<string>FXFL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.15</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 361do_plugins. All rights reserved.</string>
 	<key>NSAppleScriptEnabled</key>
 	<string>No</string>
-	<key>NSHumanReadableCopyright</key>
-	<string>© 1992-2006 Adobe Systems Incorporated</string>
 </dict>
 </plist>
