@@ -211,12 +211,12 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 								if (suites.StreamSuite4()->AEGP_GetStreamName(S_my_id, childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
 									void* dataP = NULL;
 									if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
-                                        // Check for "FoldGroupData" in UTF-16
+                                        // Check for "FD_" prefix
                                         const A_u_short* name16 = (const A_u_short*)dataP;
                                         bool match = true;
-                                        const char* target = "FoldGroupData";
-                                        for (int k=0; k<13; k++) {
-                                            if (name16[k] != (A_u_short)target[k]) {
+                                        const char* target = "FD_";
+                                        for (int k=0; k<3; k++) {
+                                            if (!name16[k] || name16[k] != (A_u_short)target[k]) {
                                                 match = false; break;
                                             }
                                         }
@@ -359,8 +359,8 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
                              if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
                                  const A_u_short* name16 = (const A_u_short*)dataP;
                                  bool match = true;
-                                 const char* target = "FoldGroupData";
-                                 for (int k=0; k<13; k++) {
+                                 const char* target = "FD_";
+                                 for (int k=0; k<3; k++) {
                                      if (!name16[k] || name16[k] != (A_u_short)target[k]) {
                                          match = false; break;
                                      }
@@ -368,10 +368,8 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
                                  if (match) {
                                      *outStreamH = childStreamH; 
                                      if (outIsFolded) {
-                                         // Check for "_Unfolded" suffix. '_' is 0x5F, 'U' is 0x55.
-                                         // We only check if stream name is long enough. 
-                                         // Assuming standard naming, if it has suffix it will be there.
-                                         if (name16[13] == (A_u_short)'_' && name16[14] == (A_u_short)'U') {
+                                         // FD_0 (Unfolded), FD_1 (Folded). Check 3rd char (0-indexed).
+                                         if (name16[3] == (A_u_short)'0') {
                                              *outIsFolded = false;
                                          }
                                      }
@@ -421,10 +419,10 @@ static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool s
     if (targetStreamH) {
         // Set Name based on state
         if (setFolded) {
-             A_UTF16Char name16[] = {'F','o','l','d','G','r','o','u','p','D','a','t','a','_','F','o','l','d','e','d', 0};
+             A_UTF16Char name16[] = {'F','D','_','1', 0};
              ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(targetStreamH, name16));
         } else {
-             A_UTF16Char name16[] = {'F','o','l','d','G','r','o','u','p','D','a','t','a','_','U','n','f','o','l','d','e','d', 0};
+             A_UTF16Char name16[] = {'F','D','_','0', 0};
              ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(targetStreamH, name16));
         }
         suites.StreamSuite4()->AEGP_DisposeStream(targetStreamH);
@@ -1128,6 +1126,7 @@ static A_Err IdleHook(
         // Double click threshold (0.05s to 0.4s)
         if (diff > 0.05 && diff < 0.4) { 
             if (dividerSelected) {
+                S_last_click_time = 0; // Prevent consecutive triggering
                 DoFoldUnfold(suites); 
             }
         }
