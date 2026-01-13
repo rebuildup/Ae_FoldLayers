@@ -211,10 +211,10 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 								if (suites.StreamSuite4()->AEGP_GetStreamName(S_my_id, childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
 									void* dataP = NULL;
 									if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
-                                        // Check for "FD_" prefix
+                                        // Check for "FD-" prefix
                                         const A_u_short* name16 = (const A_u_short*)dataP;
                                         bool match = true;
-                                        const char* target = "FD_";
+                                        const char* target = "FD-";
                                         for (int k=0; k<3; k++) {
                                             if (!name16[k] || name16[k] != (A_u_short)target[k]) {
                                                 match = false; break;
@@ -359,7 +359,7 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
                              if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
                                  const A_u_short* name16 = (const A_u_short*)dataP;
                                  bool match = true;
-                                 const char* target = "FD_";
+                                 const char* target = "FD-";
                                  for (int k=0; k<3; k++) {
                                      if (!name16[k] || name16[k] != (A_u_short)target[k]) {
                                          match = false; break;
@@ -368,7 +368,7 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
                                  if (match) {
                                      *outStreamH = childStreamH; 
                                      if (outIsFolded) {
-                                         // FD_0 (Unfolded), FD_1 (Folded). Check 3rd char (0-indexed).
+                                         // FD-0 (Unfolded), FD-1 (Folded). Check 3rd char (0-indexed).
                                          if (name16[3] == (A_u_short)'0') {
                                              *outIsFolded = false;
                                          }
@@ -419,10 +419,10 @@ static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool s
     if (targetStreamH) {
         // Set Name based on state
         if (setFolded) {
-             A_UTF16Char name16[] = {'F','D','_','1', 0};
+             A_UTF16Char name16[] = {'F','D','-','1', 0};
              ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(targetStreamH, name16));
         } else {
-             A_UTF16Char name16[] = {'F','D','_','0', 0};
+             A_UTF16Char name16[] = {'F','D','-','0', 0};
              ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(targetStreamH, name16));
         }
         suites.StreamSuite4()->AEGP_DisposeStream(targetStreamH);
@@ -448,6 +448,15 @@ static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
              ERR(SetLayerNameStr(suites, layerH, desiredPrefix + cleanName));
         }
         suites.StreamSuite4()->AEGP_DisposeStream(groupDataH);
+    } else {
+        // No data stream. If it has divider prefix, initialize with FD-0.
+        std::string currentName;
+        if (GetLayerNameStr(suites, layerH, currentName) == A_Err_NONE) {
+             if (currentName.size() > 4 && 
+                (currentName.substr(0, 4) == PREFIX_FOLDED || currentName.substr(0, 4) == PREFIX_UNFOLDED)) {
+                 ERR(SetGroupState(suites, layerH, false));
+             }
+        }
     }
     return err;
 }
@@ -1106,17 +1115,14 @@ static A_Err IdleHook(
 	}
 	LeaveCriticalSection(&S_cs);
 	
-	if (dblclick) {
-		ProcessDoubleClick();
-	}
-#endif
-
 #ifdef AE_OS_MAC
-    // Mac Double Click Detection
-    static bool S_last_mouse_down = false;
-    static clock_t S_last_click_time = 0;
-    
-    // Check global mouse state (requires ApplicationServices)
+// Global mouse state tracking for higher frequency polling
+static bool S_last_mouse_down = false;
+static clock_t S_last_click_time = 0;
+static bool S_pending_fold_action = false;
+
+static void PollMouseState() {
+    // Only verify if ApplicationServices is available (implicit on Mac)
     bool isDown = CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft);
     if (isDown && !S_last_mouse_down) {
         clock_t now = clock();
@@ -1125,13 +1131,28 @@ static A_Err IdleHook(
         
         // Double click threshold (0.05s to 0.4s)
         if (diff > 0.05 && diff < 0.4) { 
-            if (dividerSelected) {
-                S_last_click_time = 0; // Prevent consecutive triggering
-                DoFoldUnfold(suites); 
-            }
+            S_pending_fold_action = true;
+            S_last_click_time = 0; // Prevent consecutive triggering
         }
     }
     S_last_mouse_down = isDown;
+}
+#endif
+
+	if (dblclick) {
+		ProcessDoubleClick();
+	}
+#endif
+
+#ifdef AE_OS_MAC
+    PollMouseState();
+    
+    if (S_pending_fold_action) {
+        S_pending_fold_action = false;
+        if (dividerSelected) {
+             DoFoldUnfold(suites);
+        }
+    }
 #endif
 	
 	*max_sleepPL = 50; 
@@ -1148,6 +1169,9 @@ static A_Err UpdateMenuHook(
 	AEGP_WindowType			active_window)
 {
 	A_Err err = A_Err_NONE;
+#ifdef AE_OS_MAC
+    PollMouseState();
+#endif
 	AEGP_SuiteHandler suites(sP);
 	
 	ERR(suites.CommandSuite1()->AEGP_EnableCommand(S_cmd_create_divider));
