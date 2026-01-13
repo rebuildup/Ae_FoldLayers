@@ -278,8 +278,8 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
             ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(S_my_id, contentsStreamH, "ADBE Vector Group", &newGroupH));
             
             if (!err && newGroupH) {
-                // Rename it to "FoldGroupData" using UTF-16
-                A_UTF16Char name16[] = {'F','o','l','d','G','r','o','u','p','D','a','t','a', 0};
+                // Rename it to "FD-0" (Unfolded) using UTF-16
+                A_UTF16Char name16[] = {'F','D','-','0', 0};
                 ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(newGroupH, name16));
                 
                 suites.StreamSuite4()->AEGP_DisposeStream(newGroupH);
