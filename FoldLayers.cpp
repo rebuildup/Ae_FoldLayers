@@ -1109,6 +1109,9 @@ static A_Err IdleHook(
 	IsDividerSelected(suites, compH, &dividerSelected);
     
     // Periodic Name Sync (Rename Resistance)
+    // Disabled to follow GM FoldLayers behavior: toggle prefix is applied only on action,
+    // allowing manual renaming without interference.
+    /*
     if (S_idle_counter % 15 == 0) {
         AEGP_Collection2H collectionH = NULL;
         if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE) {
@@ -1125,6 +1128,7 @@ static A_Err IdleHook(
             suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
         }
     }
+    */
 	
 #ifdef AE_OS_WIN
 	// Update shared state
