@@ -1065,6 +1065,30 @@ static A_Err ProcessDoubleClick()
 // Idle Hook - Process pending double-clicks
 //=============================================================================
 
+#ifdef AE_OS_MAC
+// Global mouse state tracking for higher frequency polling
+static bool S_last_mouse_down = false;
+static clock_t S_last_click_time = 0;
+static bool S_pending_fold_action = false;
+
+static void PollMouseState() {
+    // Only verify if ApplicationServices is available (implicit on Mac)
+    bool isDown = CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft);
+    if (isDown && !S_last_mouse_down) {
+        clock_t now = clock();
+        double diff = (double)(now - S_last_click_time) / CLOCKS_PER_SEC;
+        S_last_click_time = now;
+        
+        // Double click threshold (0.05s to 0.4s)
+        if (diff > 0.05 && diff < 0.4) { 
+            S_pending_fold_action = true;
+            S_last_click_time = 0; // Prevent consecutive triggering
+        }
+    }
+    S_last_mouse_down = isDown;
+}
+#endif
+
 static A_Err IdleHook(
 	AEGP_GlobalRefcon	plugin_refconPV,
 	AEGP_IdleRefcon		refconPV,
@@ -1115,29 +1139,7 @@ static A_Err IdleHook(
 	}
 	LeaveCriticalSection(&S_cs);
 	
-#ifdef AE_OS_MAC
-// Global mouse state tracking for higher frequency polling
-static bool S_last_mouse_down = false;
-static clock_t S_last_click_time = 0;
-static bool S_pending_fold_action = false;
 
-static void PollMouseState() {
-    // Only verify if ApplicationServices is available (implicit on Mac)
-    bool isDown = CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft);
-    if (isDown && !S_last_mouse_down) {
-        clock_t now = clock();
-        double diff = (double)(now - S_last_click_time) / CLOCKS_PER_SEC;
-        S_last_click_time = now;
-        
-        // Double click threshold (0.05s to 0.4s)
-        if (diff > 0.05 && diff < 0.4) { 
-            S_pending_fold_action = true;
-            S_last_click_time = 0; // Prevent consecutive triggering
-        }
-    }
-    S_last_mouse_down = isDown;
-}
-#endif
 
 	if (dblclick) {
 		ProcessDoubleClick();
