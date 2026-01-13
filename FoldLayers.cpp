@@ -185,6 +185,12 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
 static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	if (!layerH) return false;
+    
+    // Check layer type: only Vector layers have "ADBE Root Vectors Group"
+    AEGP_ObjectType layerType;
+    if (suites.LayerSuite9()->AEGP_GetLayerObjectType(layerH, &layerType) != A_Err_NONE || layerType != AEGP_ObjectType_VECTOR) {
+        return false;
+    }
 	
 	bool hasIdentity = false;
 	
@@ -249,6 +255,12 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	A_Err err = A_Err_NONE;
 	if (!layerH) return A_Err_STRUCT;
+    
+    // Check layer type: only Vector layers have "ADBE Root Vectors Group"
+    AEGP_ObjectType layerType;
+    if (suites.LayerSuite9()->AEGP_GetLayerObjectType(layerH, &layerType) != A_Err_NONE || layerType != AEGP_ObjectType_VECTOR) {
+        return A_Err_NONE;
+    }
 	
 	AEGP_StreamRefH rootStreamH = NULL;
 	// Use DynamicStreamSuite to get layer root
@@ -330,6 +342,13 @@ static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH)
 {
     *outStreamH = NULL;
+    
+    // Check layer type: only Vector layers have "ADBE Root Vectors Group"
+    AEGP_ObjectType layerType;
+    if (suites.LayerSuite9()->AEGP_GetLayerObjectType(layerH, &layerType) != A_Err_NONE || layerType != AEGP_ObjectType_VECTOR) {
+        return A_Err_NONE;
+    }
+
     AEGP_StreamRefH rootStreamH = NULL;
     
     if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH) != A_Err_NONE) return A_Err_GENERIC;
