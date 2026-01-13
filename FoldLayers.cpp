@@ -773,6 +773,16 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	return err;
 }
 
+static void EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
+{
+    const char* script = "if (app.project.activeItem && app.project.activeItem instanceof CompItem) { if (!app.project.activeItem.hideShyLayers) { app.project.activeItem.hideShyLayers = true; } }";
+    AEGP_MemHandle resultH = NULL;
+    AEGP_MemHandle errorH = NULL;
+    suites.UtilitySuite6()->AEGP_ExecuteScript(S_my_id, script, FALSE, &resultH, &errorH);
+    if (resultH) suites.MemorySuite1()->AEGP_FreeMemHandle(resultH);
+    if (errorH) suites.MemorySuite1()->AEGP_FreeMemHandle(errorH);
+}
+
 static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 {
 	A_Err err = A_Err_NONE;
@@ -810,6 +820,9 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 			// Toggle all dividers
 			ERR(ToggleAllDividers(suites, compH));
 		}
+        
+        // Ensure "Hide Shy Layers" is enabled in the composition
+        EnsureShyModeEnabled(suites);
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
