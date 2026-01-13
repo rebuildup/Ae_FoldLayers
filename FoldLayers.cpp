@@ -138,6 +138,7 @@ static std::string BuildDividerName(bool folded, const std::string& hierarchy, c
 }
 
 
+// Check if layer has specific stream/group "FoldGroupData"
 static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	A_Err err = A_Err_NONE;
@@ -146,40 +147,60 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	bool hasIdentity = false;
 	
 	AEGP_StreamRefH rootStreamH = NULL;
-	// Use magic number 13 (AEGP_LayerStream_ROOT_VECTORS_GROUP) if not defined
-	// Try to get root vectors group
-	if (suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_ROOT_VECTORS_GROUP, &rootStreamH) != A_Err_NONE) {
-		// Fallback or error suppression
+	
+	// Get root stream using DynamicStreamSuite
+	if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH) != A_Err_NONE) {
 		return false;
 	}
 	
 	if (rootStreamH) {
-		A_long numStreams = 0;
-		if (suites.DynamicStreamSuite4()->AEGP_GetNumStreams(rootStreamH, &numStreams) == A_Err_NONE) {
-			for (A_long i = 0; i < numStreams && !hasIdentity; i++) {
-				AEGP_StreamRefH childStreamH = NULL;
-				if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childStreamH) == A_Err_NONE && childStreamH) {
-					AEGP_StreamGroupingType groupType;
-					if (suites.DynamicStreamSuite4()->AEGP_GetStreamGroupingType(childStreamH, &groupType) == A_Err_NONE) {
-						if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
-							AEGP_MemHandle nameH = NULL;
-							if (suites.StreamSuite4()->AEGP_GetStreamName(childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
-								void* dataP = NULL;
-								if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
-									// Assume UTF-8 or ASCII
-									if (strstr((const char*)dataP, "FoldGroupData")) {
-										hasIdentity = true;
+		// Look for Contents group first
+		AEGP_StreamRefH contentsStreamH = NULL;
+		if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
+			
+			// Search inside Contents
+			A_long numStreams = 0;
+			if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
+				for (A_long i = 0; i < numStreams && !hasIdentity; i++) {
+					AEGP_StreamRefH childStreamH = NULL;
+					if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByIndex(S_my_id, contentsStreamH, i, &childStreamH) == A_Err_NONE && childStreamH) {
+						AEGP_StreamGroupingType groupType;
+						if (suites.DynamicStreamSuite4()->AEGP_GetStreamGroupingType(childStreamH, &groupType) == A_Err_NONE) {
+							if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
+								AEGP_MemHandle nameH = NULL;
+								if (suites.StreamSuite4()->AEGP_GetStreamName(childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
+									void* dataP = NULL;
+									if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
+										// Assume UTF-8 or ASCII - SetStreamName uses UTF-16 but GetStreamName might return UTF-16 too?
+                                        // AEGP_GetStreamName arg indicates "utf_stream_namePH", so it IS UTF-16.
+                                        // We need to check for "FoldGroupData" in UTF-16.
+                                        // "FoldGroupData" in UTF-16LE is 'F'\0 'o'\0 ...
+                                        // Simple check: cast to short* and check
+                                        const A_u_short* name16 = (const A_u_short*)dataP;
+                                        // "FoldGroupData" length 13
+                                        // Basic check
+                                        bool match = true;
+                                        const char* target = "FoldGroupData";
+                                        for (int k=0; k<13; k++) {
+                                            if (name16[k] != (A_u_short)target[k]) {
+                                                match = false; break;
+                                            }
+                                        }
+                                        if (match) hasIdentity = true;
+                                        
+										suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
 									}
-									suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
+									suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
 								}
-								suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
 							}
 						}
+						suites.StreamSuite4()->AEGP_DisposeStream(childStreamH);
 					}
-					suites.StreamSuite4()->AEGP_DisposeStream(childStreamH);
 				}
 			}
+			suites.StreamSuite4()->AEGP_DisposeStream(contentsStreamH);
 		}
+		
 		suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
 	}
 	
@@ -193,29 +214,38 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	if (!layerH) return A_Err_STRUCT;
 	
 	AEGP_StreamRefH rootStreamH = NULL;
-	// Use ROOT_VECTORS_GROUP
-	err = suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_ROOT_VECTORS_GROUP, &rootStreamH);
+	// Use DynamicStreamSuite to get layer root
+	err = suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH);
 	if (err) {
-		// Report error for debugging
 		char errBuf[128];
-		sprintf(errBuf, "FoldLayers Debug: Failed to get Root Stream (Err: %d)", err);
+		sprintf(errBuf, "FoldLayers Debug: Failed to get Layer Stream (Err: %d)", err);
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errBuf);
 		return err;
 	}
 	
 	if (!err && rootStreamH) {
-		// Add new group "FoldGroupData" directly to root
-		AEGP_StreamRefH newGroupH = NULL;
-		ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(rootStreamH, "ADBE Vector Group", &newGroupH));
-		
-		if (!err && newGroupH) {
-			// Rename it to "FoldGroupData"
-			ERR(suites.StreamSuite4()->AEGP_SetStreamName(newGroupH, "FoldGroupData"));
-            // Debug success
-            // suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Identity Added");
-			suites.StreamSuite4()->AEGP_DisposeStream(newGroupH);
-		} else {
-            suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Failed to add stream");
+        // Get Contents Group
+        AEGP_StreamRefH contentsStreamH = NULL;
+        err = suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH);
+        
+        if (!err && contentsStreamH) {
+            AEGP_StreamRefH newGroupH = NULL;
+            // AddStream(parent, name, out_stream)
+            // Add a generic group "ADBE Vector Group"
+            ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(S_my_id, contentsStreamH, "ADBE Vector Group", &newGroupH));
+            
+            if (!err && newGroupH) {
+                // Rename it to "FoldGroupData" using UTF-16
+                A_UTF16Char name16[] = {'F','o','l','d','G','r','o','u','p','D','a','t','a', 0};
+                ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(newGroupH, name16));
+                
+                suites.StreamSuite4()->AEGP_DisposeStream(newGroupH);
+            } else {
+                suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Failed to add stream to Contents");
+            }
+            suites.StreamSuite4()->AEGP_DisposeStream(contentsStreamH);
+        } else {
+             suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Failed to find Contents group");
         }
 		
 		suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
