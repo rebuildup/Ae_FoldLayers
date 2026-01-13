@@ -139,6 +139,32 @@ static std::string BuildDividerName(bool folded, const std::string& hierarchy, c
 }
 
 
+// Helper to find child by match name (safe for all group types)
+static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH parentH, const char* matchName, AEGP_StreamRefH* outStreamH)
+{
+    *outStreamH = NULL;
+    A_long count = 0;
+    A_Err err = A_Err_NONE;
+    ERR(suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(parentH, &count));
+    
+    for (A_long i=0; i<count && !err && !*outStreamH; ++i) {
+        AEGP_StreamRefH childH = NULL;
+        if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByIndex(S_my_id, parentH, i, &childH) == A_Err_NONE && childH) {
+            char buf[AEGP_MAX_STREAM_MATCH_NAME_SIZE + 1];
+            if (suites.DynamicStreamSuite4()->AEGP_GetMatchName(childH, buf) == A_Err_NONE) {
+                if (strcmp(buf, matchName) == 0) {
+                    *outStreamH = childH; // Found, caller must dispose
+                }
+            }
+            
+            if (!*outStreamH) {
+                suites.StreamSuite4()->AEGP_DisposeStream(childH);
+            }
+        }
+    }
+    return *outStreamH ? A_Err_NONE : A_Err_MISSING_UNNAMED_STREAM;
+}
+
 // Check if layer has specific stream/group "FoldGroupData"
 static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
@@ -155,11 +181,12 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	}
 	
 	if (rootStreamH) {
-		// Look for Contents group first
+		// Look for Contents group safely
 		AEGP_StreamRefH contentsStreamH = NULL;
-		if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
+		if (FindStreamByMatchName(suites, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
 			
 			// Search inside Contents
+            // Contents usually stores groups directly.
 			A_long numStreams = 0;
 			if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
 				for (A_long i = 0; i < numStreams && !hasIdentity; i++) {
@@ -172,14 +199,8 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 								if (suites.StreamSuite4()->AEGP_GetStreamName(S_my_id, childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
 									void* dataP = NULL;
 									if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
-										// Assume UTF-8 or ASCII - SetStreamName uses UTF-16 but GetStreamName might return UTF-16 too?
-                                        // AEGP_GetStreamName arg indicates "utf_stream_namePH", so it IS UTF-16.
-                                        // We need to check for "FoldGroupData" in UTF-16.
-                                        // "FoldGroupData" in UTF-16LE is 'F'\0 'o'\0 ...
-                                        // Simple check: cast to short* and check
+                                        // Check for "FoldGroupData" in UTF-16
                                         const A_u_short* name16 = (const A_u_short*)dataP;
-                                        // "FoldGroupData" length 13
-                                        // Basic check
                                         bool match = true;
                                         const char* target = "FoldGroupData";
                                         for (int k=0; k<13; k++) {
@@ -225,14 +246,13 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	}
 	
 	if (!err && rootStreamH) {
-        // Get Contents Group
+        // Get Contents Group safely
         AEGP_StreamRefH contentsStreamH = NULL;
-        err = suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH);
+        err = FindStreamByMatchName(suites, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH);
         
         if (!err && contentsStreamH) {
             AEGP_StreamRefH newGroupH = NULL;
-            // AddStream(parent, name, out_stream)
-            // Add a generic group "ADBE Vector Group"
+            // Add generic group "ADBE Vector Group"
             ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(S_my_id, contentsStreamH, "ADBE Vector Group", &newGroupH));
             
             if (!err && newGroupH) {
@@ -246,7 +266,10 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
             }
             suites.StreamSuite4()->AEGP_DisposeStream(contentsStreamH);
         } else {
-             suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Failed to find Contents group");
+             // If Contents not found, maybe report debug info?
+             char errBuf[128];
+             sprintf(errBuf, "FoldLayers Debug: Failed to find Contents group (Err: %d)", err);
+             suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errBuf);
         }
 		
 		suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
