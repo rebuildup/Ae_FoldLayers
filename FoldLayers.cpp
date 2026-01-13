@@ -1173,6 +1173,18 @@ static A_Err UpdateMenuHook(
 	A_Err err = A_Err_NONE;
 #ifdef AE_OS_MAC
     PollMouseState();
+    if (S_pending_fold_action) {
+        S_pending_fold_action = false;
+        // Try executing immediately
+        AEGP_SuiteHandler suites(sP);
+        AEGP_CompH compH = NULL;
+        if (GetActiveComp(suites, &compH) == A_Err_NONE && compH) {
+             bool sel = false;
+             if (IsDividerSelected(suites, compH, &sel) == A_Err_NONE && sel) {
+                 DoFoldUnfold(suites);
+             }
+        }
+    }
 #endif
 	AEGP_SuiteHandler suites(sP);
 	
