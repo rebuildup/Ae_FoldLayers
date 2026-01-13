@@ -26,6 +26,10 @@
 	#include <sys/stat.h>
 #endif
 
+#ifndef DllExport
+	#define DllExport
+#endif
+
 #include "entry.h"
 #include "AE_GeneralPlug.h"
 #include "AEGP_SuiteHandler.h"
