@@ -925,7 +925,7 @@ static A_Err CommandHook(
 // Entry Point
 //=============================================================================
 
-A_Err EntryPointFunc(
+extern "C" DllExport A_Err EntryPointFunc(
 	struct SPBasicSuite		*pica_basicP,
 	A_long					major_versionL,
 	A_long					minor_versionL,
