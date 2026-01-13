@@ -242,34 +242,7 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	return err;
 }
 
-static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
-{
-	A_Err err = A_Err_NONE;
-	AEGP_CompH compH = NULL;
-	
-	ERR(GetActiveComp(suites, &compH));
-	if (!compH) return A_Err_NONE;
-	
-	// Check if any divider is selected
-	bool dividerSelected = false;
-	ERR(IsDividerSelected(suites, compH, &dividerSelected));
-    
-    // Debug
-    if (!dividerSelected) {
-         // Check if a layer is selected at all
-        AEGP_Collection2H collectionH = NULL;
-        A_u_long numSelected = 0;
-        if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE) {
-            suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
-            if (numSelected > 0) {
-                 // Selected but not identified as divider
-                 suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Layer selected but not recognized as Group");
-            }
-            suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-        }
-    }
-	
-	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+
 static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	// First check legacy name-based (fast)
@@ -775,6 +748,21 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 	// Check if any divider is selected
 	bool dividerSelected = false;
 	ERR(IsDividerSelected(suites, compH, &dividerSelected));
+
+    // Debug
+    if (!dividerSelected) {
+         // Check if a layer is selected at all
+        AEGP_Collection2H collectionH = NULL;
+        A_u_long numSelected = 0;
+        if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE) {
+            suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
+            if (numSelected > 0) {
+                 // Selected but not identified as divider
+                 suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Layer selected but not recognized as Group");
+            }
+            suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+        }
+    }
 	
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
 	
