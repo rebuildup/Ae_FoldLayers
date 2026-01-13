@@ -354,7 +354,7 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
         }
         suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
     }
-    return *outStreamH ? A_Err_NONE : A_Err_MISSING_UNNAMED_STREAM;
+    return *outStreamH ? A_Err_NONE : A_Err_GENERIC;
 }
 
 static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_StreamRefH foldGroupDataH, bool setFolded)
@@ -395,7 +395,8 @@ static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
     AEGP_StreamRefH groupDataH = NULL;
     if (GetFoldGroupDataStream(suites, layerH, &groupDataH) == A_Err_NONE && groupDataH) {
         bool folded = IsGroupFoldedInternal(suites, groupDataH);
-        std::string currentName = GetLayerNameStr(suites, layerH);
+        std::string currentName;
+        if (GetLayerNameStr(suites, layerH, currentName) != A_Err_NONE) return A_Err_GENERIC;
         std::string cleanName = currentName;
         if (cleanName.size() > 4 && cleanName.substr(0, 4) == PREFIX_FOLDED) cleanName = cleanName.substr(4);
         else if (cleanName.size() > 4 && cleanName.substr(0, 4) == PREFIX_UNFOLDED) cleanName = cleanName.substr(4);
@@ -418,13 +419,15 @@ static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
         return folded;
     }
     // Fallback to name check
-    std::string name = GetLayerNameStr(suites, layerH);
-    if (name.length() >= 3) {
-        unsigned char c0 = (unsigned char)name[0];
-        unsigned char c1 = (unsigned char)name[1];
-        unsigned char c2 = (unsigned char)name[2];
-        if (c0 == 0xE2 && c1 == 0x96 && c2 == 0xB8) {
-            return true;
+    std::string name;
+    if (GetLayerNameStr(suites, layerH, name) == A_Err_NONE) {
+        if (name.length() >= 3) {
+            unsigned char c0 = (unsigned char)name[0];
+            unsigned char c1 = (unsigned char)name[1];
+            unsigned char c2 = (unsigned char)name[2];
+            if (c0 == 0xE2 && c1 == 0x96 && c2 == 0xB8) {
+                return true;
+            }
         }
     }
     return false;
@@ -549,111 +552,7 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	return err;
 }
 
-// ----------------------------------------------------------------------------
-// State Management via Hidden Streams
-// ----------------------------------------------------------------------------
 
-static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH)
-{
-    *outStreamH = NULL;
-    A_Err err = A_Err_NONE;
-    AEGP_StreamRefH rootStreamH = NULL;
-    
-    if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH) != A_Err_NONE) return A_Err_GENERIC;
-    
-    if (rootStreamH) {
-        AEGP_StreamRefH contentsStreamH = NULL;
-        if (FindStreamByMatchName(suites, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
-             A_long numStreams = 0;
-             if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
-                 for (A_long i = 0; i < numStreams && !*outStreamH; i++) {
-                     AEGP_StreamRefH childStreamH = NULL;
-                     if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByIndex(S_my_id, contentsStreamH, i, &childStreamH) == A_Err_NONE && childStreamH) {
-                         AEGP_MemHandle nameH = NULL;
-                         if (suites.StreamSuite4()->AEGP_GetStreamName(S_my_id, childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
-                             void* dataP = NULL;
-                             if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
-                                 const A_u_short* name16 = (const A_u_short*)dataP;
-                                 bool match = true;
-                                 const char* target = "FoldGroupData";
-                                 for (int k=0; k<13; k++) {
-                                     if (name16[k] != (A_u_short)target[k]) {
-                                         match = false; break;
-                                     }
-                                 }
-                                 if (match) {
-                                     *outStreamH = childStreamH; 
-                                 }
-                                 suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
-                             }
-                             suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
-                         }
-                         if (!*outStreamH) {
-                             suites.StreamSuite4()->AEGP_DisposeStream(childStreamH);
-                         }
-                     }
-                 }
-             }
-             suites.StreamSuite4()->AEGP_DisposeStream(contentsStreamH);
-        }
-        suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
-    }
-    return *outStreamH ? A_Err_NONE : A_Err_MISSING_UNNAMED_STREAM;
-}
-
-static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_StreamRefH foldGroupDataH, bool setFolded)
-{
-    A_Err err = A_Err_NONE;
-    AEGP_StreamRefH stateStreamH = NULL;
-    // Check if State_Folded exists
-    bool exists = (FindStreamByMatchName(suites, foldGroupDataH, "State_Folded", &stateStreamH) == A_Err_NONE && stateStreamH);
-    
-    if (setFolded && !exists) {
-        AEGP_StreamRefH newStreamH = NULL;
-        ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(S_my_id, foldGroupDataH, "ADBE Vector Group", &newStreamH));
-        if (!err && newStreamH) {
-             A_UTF16Char name16[] = {'S','t','a','t','e','_','F','o','l','d','e','d', 0};
-             ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(newStreamH, name16));
-             suites.StreamSuite4()->AEGP_DisposeStream(newStreamH);
-        }
-    } else if (!setFolded && exists) {
-        ERR(suites.DynamicStreamSuite4()->AEGP_DeleteStream(stateStreamH));
-    }
-    if (stateStreamH) suites.StreamSuite4()->AEGP_DisposeStream(stateStreamH);
-    return err;
-}
-
-static bool IsGroupFoldedInternal(AEGP_SuiteHandler& suites, AEGP_StreamRefH foldGroupDataH)
-{
-    AEGP_StreamRefH stateStreamH = NULL;
-    bool folded = false;
-    if (FindStreamByMatchName(suites, foldGroupDataH, "State_Folded", &stateStreamH) == A_Err_NONE && stateStreamH) {
-        folded = true;
-        suites.StreamSuite4()->AEGP_DisposeStream(stateStreamH);
-    }
-    return folded;
-}
-
-static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
-{
-    A_Err err = A_Err_NONE;
-    AEGP_StreamRefH groupDataH = NULL;
-    if (GetFoldGroupDataStream(suites, layerH, &groupDataH) == A_Err_NONE && groupDataH) {
-        bool folded = IsGroupFoldedInternal(suites, groupDataH);
-        std::string currentName = GetLayerNameStr(suites, layerH);
-        std::string cleanName = currentName;
-        // Remove prefix
-        if (cleanName.size() > 4 && cleanName.substr(0, 4) == PREFIX_FOLDED) cleanName = cleanName.substr(4);
-        else if (cleanName.size() > 4 && cleanName.substr(0, 4) == PREFIX_UNFOLDED) cleanName = cleanName.substr(4);
-        
-        std::string desiredPrefix = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
-        if (currentName.rfind(desiredPrefix, 0) != 0) {
-             ERR(SetLayerNameStr(suites, layerH, desiredPrefix + cleanName));
-        }
-        suites.StreamSuite4()->AEGP_DisposeStream(groupDataH);
-    }
-    return err;
-}
 
 
 static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH, 
