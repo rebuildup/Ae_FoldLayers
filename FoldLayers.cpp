@@ -148,6 +148,17 @@ static std::string BuildDividerName(bool folded, const std::string& hierarchy, c
 static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH parentH, const char* matchName, AEGP_StreamRefH* outStreamH)
 {
     *outStreamH = NULL;
+    
+    // Check if it is a Named Group
+    AEGP_StreamGroupingType groupType;
+    if (suites.DynamicStreamSuite4()->AEGP_GetStreamGroupingType(parentH, &groupType) == A_Err_NONE) {
+        if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
+             // Use direct lookup for Named Groups to avoid "invalid index in named group" errors
+             return suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, parentH, matchName, outStreamH);
+        }
+    }
+
+    // Iterative search for Indexed Groups
     A_long count = 0;
     A_Err err = A_Err_NONE;
     ERR(suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(parentH, &count));
@@ -187,7 +198,7 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	if (rootStreamH) {
 		// Look for Contents group safely
 		AEGP_StreamRefH contentsStreamH = NULL;
-		if (FindStreamByMatchName(suites, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
+		if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
 			
 			// Search inside Contents
             // Contents usually stores groups directly.
@@ -256,7 +267,7 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	if (!err && rootStreamH) {
         // Get Contents Group safely
         AEGP_StreamRefH contentsStreamH = NULL;
-        err = FindStreamByMatchName(suites, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH);
+        err = suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH);
         
         if (!err && contentsStreamH) {
             AEGP_StreamRefH newGroupH = NULL;
@@ -325,7 +336,7 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
     
     if (rootStreamH) {
         AEGP_StreamRefH contentsStreamH = NULL;
-        if (FindStreamByMatchName(suites, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
+        if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
              A_long numStreams = 0;
              if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
                  for (A_long i = 0; i < numStreams && !*outStreamH; i++) {
