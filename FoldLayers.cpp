@@ -1079,8 +1079,8 @@ static void PollMouseState() {
         double diff = (double)(now - S_last_click_time) / CLOCKS_PER_SEC;
         S_last_click_time = now;
         
-        // Double click threshold (0.05s to 0.4s)
-        if (diff > 0.05 && diff < 0.4) { 
+        // Double click threshold (0.01s to 0.5s) - Relaxed
+        if (diff > 0.01 && diff < 0.5) { 
             S_pending_fold_action = true;
             S_last_click_time = 0; // Prevent consecutive triggering
         }
