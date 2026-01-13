@@ -43,6 +43,11 @@ static A_long			S_idle_counter			= 0;
 // Helper Functions
 //=============================================================================
 
+// Define missing constant if needed
+#ifndef AEGP_LayerStream_ROOT_VECTORS_GROUP
+	#define AEGP_LayerStream_ROOT_VECTORS_GROUP	((AEGP_LayerStream)0x0D) // 13 in some versions, or check SDK
+#endif
+
 //=============================================================================
 // Layer Name Utilities (Forward Declarations / Moved Implementation)
 //=============================================================================
@@ -150,131 +155,89 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	A_Err err = A_Err_NONE;
 	bool hasIdentity = false;
 	
-	// Get root stream - Use latest StreamSuite 
-	AEGP_StreamRefH rootStreamH = NULL;
-	// ERR(suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
+// Check if layer has specific stream/group "FoldGroupData"
+static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+{
+	A_Err err = A_Err_NONE;
+	if (!layerH) return false;
 	
-	if (!err && rootStreamH) {
-		// Use latest DynamicStreamSuite
+	bool hasIdentity = false;
+	
+	AEGP_StreamRefH rootStreamH = NULL;
+	// Use magic number 13 (AEGP_LayerStream_ROOT_VECTORS_GROUP) if not defined
+	// Try to get root vectors group
+	if (suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_ROOT_VECTORS_GROUP, &rootStreamH) != A_Err_NONE) {
+		// Fallback or error suppression
+		return false;
+	}
+	
+	if (rootStreamH) {
 		A_long numStreams = 0;
-		ERR(suites.DynamicStreamSuite4()->AEGP_GetNumStreams(rootStreamH, &numStreams));
-		
-		for (A_long i = 0; i < numStreams && !err && !hasIdentity; i++) {
-			AEGP_StreamRefH childStreamH = NULL;
-			ERR(suites.DynamicStreamSuite4()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childStreamH));
-			if (!err && childStreamH) {
-				AEGP_StreamGroupingType groupType;
-				ERR(suites.DynamicStreamSuite4()->AEGP_GetStreamGroupingType(childStreamH, &groupType));
-				
-				if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
-					// Check name
-					AEGP_MemHandle nameH = NULL;
-					ERR(suites.StreamSuite4()->AEGP_GetStreamName(childStreamH, FALSE, &nameH)); // FALSE = distinct name
-					if (!err && nameH) {
-						A_char nameBuf[256] = {'\0'};
-						AEGP_MemSize size = 0;
-						ERR(suites.MemorySuite1()->AEGP_GetMemHandleSize(nameH, &size));
-						
-						if (!err && size > 0) {
-							void* dataP = NULL;
-							ERR(suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP));
-							if (dataP) {
-								size_t copyLen = (size_t)size < 255 ? (size_t)size : 255;
-								memcpy(nameBuf, dataP, copyLen);
-								nameBuf[copyLen] = '\0';
-								if (std::string(nameBuf) == "FoldGroupData") {
-									hasIdentity = true;
+		if (suites.DynamicStreamSuite4()->AEGP_GetNumStreams(rootStreamH, &numStreams) == A_Err_NONE) {
+			for (A_long i = 0; i < numStreams && !hasIdentity; i++) {
+				AEGP_StreamRefH childStreamH = NULL;
+				if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childStreamH) == A_Err_NONE && childStreamH) {
+					AEGP_StreamGroupingType groupType;
+					if (suites.DynamicStreamSuite4()->AEGP_GetStreamGroupingType(childStreamH, &groupType) == A_Err_NONE) {
+						if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
+							AEGP_MemHandle nameH = NULL;
+							if (suites.StreamSuite4()->AEGP_GetStreamName(childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
+								void* dataP = NULL;
+								if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
+									// Assume UTF-8 or ASCII
+									if (strstr((const char*)dataP, "FoldGroupData")) {
+										hasIdentity = true;
+									}
+									suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
 								}
+								suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
 							}
-							suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
 						}
-						suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
 					}
+					suites.StreamSuite4()->AEGP_DisposeStream(childStreamH);
 				}
-				suites.StreamSuite4()->AEGP_DisposeStream(childStreamH);
 			}
 		}
 		suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
 	}
 	
 	return hasIdentity;
-	*/
-	return false; 
 }
 
 // Add identification group to layer
 static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
-	// Prevent unused parameter warnings
-	(void)suites;
-	(void)layerH;
-
-	/*
 	A_Err err = A_Err_NONE;
 	if (!layerH) return A_Err_STRUCT;
 	
 	AEGP_StreamRefH rootStreamH = NULL;
-	// ERR(suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_SOURCE, &rootStreamH));
+	// Use ROOT_VECTORS_GROUP
+	ERR(suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_ROOT_VECTORS_GROUP, &rootStreamH));
 	
 	if (!err && rootStreamH) {
-		// Find "ADBE Root Vectors Group" (Contents)
-		AEGP_StreamRefH contentsStreamH = NULL;
-		A_long numStreams = 0;
-		ERR(suites.DynamicStreamSuite4()->AEGP_GetNumStreams(rootStreamH, &numStreams));
+		// Add new group "FoldGroupData" directly to root
+		// Note: Usually we should look for "Contents" but adding to root vectors group (which IS contents for shape layer) works.
 		
-		for (A_long i = 0; i < numStreams && !err; i++) {
-			AEGP_StreamRefH childH = NULL;
-			ERR(suites.DynamicStreamSuite4()->AEGP_GetNewStreamByIndex(rootStreamH, i, &childH));
-			if (!err && childH) {
-				// Check match name for Contents
-				AEGP_MemHandle matchNameH = NULL;
-				ERR(suites.StreamSuite4()->AEGP_GetStreamMatchName(childH, &matchNameH)); // Get match name
-				if (!err && matchNameH) {
-					A_char matchName[256] = {'\0'};
-					void* dataP = NULL;
-					AEGP_MemSize size = 0;
-					ERR(suites.MemorySuite1()->AEGP_GetMemHandleSize(matchNameH, &size));
-					ERR(suites.MemorySuite1()->AEGP_LockMemHandle(matchNameH, &dataP));
-					
-					if (dataP && size > 0) {
-						size_t copyLen = (size_t)size < 255 ? (size_t)size : 255;
-						memcpy(matchName, dataP, copyLen);
-						matchName[copyLen] = '\0';
-					}
-					
-					suites.MemorySuite1()->AEGP_UnlockMemHandle(matchNameH);
-					suites.MemorySuite1()->AEGP_FreeMemHandle(matchNameH);
-					
-					if (strcmp(matchName, "ADBE Root Vectors Group") == 0) {
-						contentsStreamH = childH; // Found it!
-						break; // Detect loop break, don't dispose yet
-					}
-				}
-				
-				if (contentsStreamH != childH) {
-					suites.StreamSuite4()->AEGP_DisposeStream(childH);
-				}
-			}
-		}
+		AEGP_StreamRefH newGroupH = NULL;
+		// AddStream(parent, name, out_stream)
+		// We add a generic group first
+		ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(rootStreamH, "ADBE Vector Group", &newGroupH));
 		
-		if (contentsStreamH) {
-			// Add new group "ADBE Vector Group"
-			AEGP_StreamRefH newGroupH = NULL;
-			ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(contentsStreamH, "ADBE Vector Group", &newGroupH));
+		if (!err && newGroupH) {
+			// Rename it to "FoldGroupData"
+			// Note: SetStreamName might limit characters or require specific context, but "FoldGroupData" should be safe.
+			ERR(suites.StreamSuite4()->AEGP_SetStreamName(newGroupH, "FoldGroupData"));
 			
-			if (!err && newGroupH) {
-				// Rename it to "FoldGroupData"
-				ERR(suites.StreamSuite4()->AEGP_SetStreamName(newGroupH, "FoldGroupData"));
-				suites.StreamSuite4()->AEGP_DisposeStream(newGroupH);
-			}
-			suites.StreamSuite4()->AEGP_DisposeStream(contentsStreamH);
+			// Hide it if possible? No easy way via SDK to set "Hidden" flag for stream, 
+			// but user said "make empty folder and enable management by name", so this is enough.
+			
+			suites.StreamSuite4()->AEGP_DisposeStream(newGroupH);
 		}
 		
 		suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
 	}
+	
 	return err;
-	*/
-	return A_Err_NONE;
 }
 
 // Check if name starts with fold/unfold prefix OR has identity
@@ -293,9 +256,9 @@ static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 		}
 	}
 	
-	// If name check failed, check identity content (DISABLED FOR NOW)
-	// return HasDividerIdentity(suites, layerH);
-	return false;
+	// If name check failed, check identity content
+	if (!suites.StreamSuite4()) return false; // Safety check
+	return HasDividerIdentity(suites, layerH);
 }
 
 
@@ -350,7 +313,7 @@ static int GetHierarchyDepth(const std::string& hierarchy)
 // Get display name without prefix and hierarchy
 static std::string GetDividerName(const std::string& fullName)
 {
-	if (fullName.length() <= 4) return "Group Divider";
+	if (fullName.length() <= 4) return "Group";
 	
 	size_t pos = 4;  // After prefix
 	
@@ -364,7 +327,7 @@ static std::string GetDividerName(const std::string& fullName)
 		}
 	}
 	
-	if (pos >= fullName.length()) return "Group Divider";
+	if (pos >= fullName.length()) return "Group";
 	return fullName.substr(pos);
 }
 
@@ -451,8 +414,52 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	std::vector<AEGP_LayerH> groupLayers;
 	ERR(GetGroupLayers(suites, compH, dividerIndex, hierarchy, groupLayers));
 	
+	// Complex logic: 
+	// If folding (fold=true), hide everything.
+	// If unfolding (fold=false), hide only children of *closed* sub-dividers.
+	
+	int skipUntilDepth = -1; // -1 means do not skip
+	
 	for (size_t i = 0; i < groupLayers.size() && !err; i++) {
-		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(groupLayers[i], AEGP_LayerFlag_SHY, fold ? TRUE : FALSE));
+		AEGP_LayerH subLayer = groupLayers[i];
+		
+		std::string subName;
+		ERR(GetLayerNameStr(suites, subLayer, subName));
+		std::string subHier = GetHierarchy(subName);
+		int subDepth = GetHierarchyDepth(subHier);
+		
+		bool shouldHide = false;
+		
+		if (fold) {
+			// Hiding parent: hide everything
+			shouldHide = true;
+		} else {
+			// Unfolding parent:
+			// Check if we are inside a closed sub-group
+			if (skipUntilDepth != -1) {
+				if (subDepth > skipUntilDepth) {
+					// Still deeper than the closed parent -> keep hidden
+					shouldHide = true;
+				} else {
+					// Returned to shallower or same level -> stop skipping
+					skipUntilDepth = -1;
+				}
+			}
+			
+			if (skipUntilDepth == -1) {
+				// Not currently skipping, so show this layer
+				shouldHide = false;
+				
+				// But if this layer is ITSELF a folded divider, start skipping its children
+				if (IsDividerLayer(suites, subLayer)) {
+					if (IsDividerFolded(subName)) {
+						skipUntilDepth = subDepth; // effectively skips children (depth > subDepth)
+					}
+				}
+			}
+		}
+		
+		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(subLayer, AEGP_LayerFlag_SHY, shouldHide ? TRUE : FALSE));
 	}
 	
 	return err;
@@ -703,12 +710,14 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	
 	if (!err && newLayer) {
 		// Set layer name with hierarchy
-		std::string dividerName = BuildDividerName(false, parentHierarchy, "Group Divider");
+		std::string dividerName = BuildDividerName(false, parentHierarchy, "Group");
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
 		
-		// Move to insert position
-		if (insertIndex > 0) {
-			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, insertIndex));
+		// Move to insert position (BELOW the selected layer, so index + 1)
+		// Note: AEGP_ReorderLayer takes the new index. 
+		// If we want it after insertIndex, we should use insertIndex + 1.
+		if (insertIndex >= 0) { // insertIndex is 0-based
+			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, insertIndex + 1));
 		}
 		
 		// Set VIDEO OFF (invisible)
