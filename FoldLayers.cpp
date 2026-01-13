@@ -137,25 +137,7 @@ static std::string BuildDividerName(bool folded, const std::string& hierarchy, c
 	return result;
 }
 
-// Check if layer has specific stream/group "FoldGroupData"
-static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
-{
-	/* 
-	   TEMPORARILY DISABLED: AEGP_LayerStream_SOURCE not found and Suite versions need update.
-	   Focusing on fixing build first.
-	*/
-	
-	// Prevent unused parameter warnings
-	(void)suites;
-	(void)layerH;
-	
-	/*
-	if (!layerH) return false;
-	
-	A_Err err = A_Err_NONE;
-	bool hasIdentity = false;
-	
-// Check if layer has specific stream/group "FoldGroupData"
+
 static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	A_Err err = A_Err_NONE;
