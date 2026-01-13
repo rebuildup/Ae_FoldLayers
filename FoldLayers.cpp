@@ -22,6 +22,7 @@
 
 #ifdef AE_OS_MAC
 #include <ApplicationServices/ApplicationServices.h>
+#include <CoreFoundation/CoreFoundation.h>
 #endif
 
 // Global variables
@@ -48,6 +49,15 @@ static A_long			S_idle_counter			= 0;
 //=============================================================================
 // Helper Functions
 //=============================================================================
+
+static bool IsDividerNameFast(const std::string& name)
+{
+	if (name.length() < 3) return false;
+	const unsigned char c0 = (unsigned char)name[0];
+	const unsigned char c1 = (unsigned char)name[1];
+	const unsigned char c2 = (unsigned char)name[2];
+	return (c0 == 0xE2 && c1 == 0x96 && (c2 == 0xB8 || c2 == 0xBE));
+}
 
 // Define missing constant if needed
 #ifndef AEGP_LayerStream_ROOT_VECTORS_GROUP
@@ -310,18 +320,18 @@ static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	// First check legacy name-based (fast)
 	std::string name;
 	if (GetLayerNameStr(suites, layerH, name) == A_Err_NONE) {
-		if (name.length() >= 3) {
-			unsigned char c0 = (unsigned char)name[0];
-			unsigned char c1 = (unsigned char)name[1];
-			unsigned char c2 = (unsigned char)name[2];
-			if (c0 == 0xE2 && c1 == 0x96 && (c2 == 0xB8 || c2 == 0xBE)) {
-				return true;
-			}
-		}
+		if (IsDividerNameFast(name)) return true;
 	}
 	
 	// If name check failed, check identity content
 	if (!suites.StreamSuite4()) return false; // Safety check
+	return HasDividerIdentity(suites, layerH);
+}
+
+static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
+{
+	if (IsDividerNameFast(name)) return true;
+	if (!suites.StreamSuite4()) return false;
 	return HasDividerIdentity(suites, layerH);
 }
 
@@ -640,8 +650,13 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 		
 		std::string subName;
 		ERR(GetLayerNameStr(suites, subLayer, subName));
-		std::string subHier = GetHierarchy(subName);
-		int subDepth = GetHierarchyDepth(subHier);
+		const bool subIsDivider = IsDividerLayerWithKnownName(suites, subLayer, subName);
+		std::string subHier;
+		int subDepth = 0;
+		if (subIsDivider) {
+			subHier = GetHierarchy(subName);
+			subDepth = GetHierarchyDepth(subHier);
+		}
 		
 		bool shouldHide = false;
 		
@@ -649,7 +664,12 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 			shouldHide = true;
 		} else {
 			if (skipUntilDepth != -1) {
-				if (subDepth > skipUntilDepth) {
+				// When unfolding a parent group, keep the contents of folded nested
+				// dividers hidden. Non-divider layers don't carry hierarchy markers,
+				// so rely on divider boundaries to decide when the skip ends.
+				if (!subIsDivider) {
+					shouldHide = true;
+				} else if (subDepth > skipUntilDepth) {
 					shouldHide = true;
 				} else {
 					skipUntilDepth = -1;
@@ -658,7 +678,7 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 			
 			if (skipUntilDepth == -1) {
 				shouldHide = false;
-				if (IsDividerLayer(suites, subLayer)) {
+				if (subIsDivider) {
 					if (IsDividerFolded(suites, subLayer)) {
 						skipUntilDepth = subDepth; 
 					}
@@ -1072,25 +1092,36 @@ static A_Err ProcessDoubleClick()
 
 #ifdef AE_OS_MAC
 // Global mouse state tracking for higher frequency polling
-static bool S_last_mouse_down = false;
-static clock_t S_last_click_time = 0;
 static bool S_pending_fold_action = false;
+static double S_last_left_down_event_ts = 0.0;
+static double S_last_click_event_ts = 0.0;
 
 static void PollMouseState() {
-    // Only verify if ApplicationServices is available (implicit on Mac)
-    bool isDown = CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft);
-    if (isDown && !S_last_mouse_down) {
-        clock_t now = clock();
-        double diff = (double)(now - S_last_click_time) / CLOCKS_PER_SEC;
-        S_last_click_time = now;
-        
-        // Double click threshold (0.01s to 0.5s) - Relaxed
-        if (diff > 0.01 && diff < 0.5) { 
-            S_pending_fold_action = true;
-            S_last_click_time = 0; // Prevent consecutive triggering
-        }
-    }
-    S_last_mouse_down = isDown;
+	// Polling-based approach: use the timestamp of the most recent left-mouse-down
+	// event, derived from "seconds since last event". This avoids missing clicks
+	// due to low polling frequency and avoids using CPU-time (clock()).
+	const double now = CFAbsoluteTimeGetCurrent();
+	const double since = CGEventSourceSecondsSinceLastEventType(
+		kCGEventSourceStateCombinedSessionState,
+		kCGEventLeftMouseDown);
+	if (!(since >= 0.0)) {
+		return;
+	}
+	const double event_ts = now - since;
+
+	// Detect arrival of a new left-mouse-down event.
+	if (event_ts > S_last_left_down_event_ts + 1e-4) {
+		S_last_left_down_event_ts = event_ts;
+
+		const double diff = event_ts - S_last_click_event_ts;
+		S_last_click_event_ts = event_ts;
+
+		// Double click threshold (0.05s to 0.5s)
+		if (diff > 0.05 && diff < 0.5) {
+			S_pending_fold_action = true;
+			S_last_click_event_ts = 0.0; // prevent rapid multi-trigger (e.g., triple-click)
+		}
+	}
 }
 #endif
 
