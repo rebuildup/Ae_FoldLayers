@@ -12,6 +12,7 @@
 /*                                                                 */
 /*******************************************************************/
 
+#define _CRT_SECURE_NO_WARNINGS
 #include "FoldLayers.h"
 
 #ifdef AE_OS_WIN
