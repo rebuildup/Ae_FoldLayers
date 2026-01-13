@@ -168,7 +168,7 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 						if (suites.DynamicStreamSuite4()->AEGP_GetStreamGroupingType(childStreamH, &groupType) == A_Err_NONE) {
 							if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
 								AEGP_MemHandle nameH = NULL;
-								if (suites.StreamSuite4()->AEGP_GetStreamName(childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
+								if (suites.StreamSuite4()->AEGP_GetStreamName(S_my_id, childStreamH, FALSE, &nameH) == A_Err_NONE && nameH) {
 									void* dataP = NULL;
 									if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
 										// Assume UTF-8 or ASCII - SetStreamName uses UTF-16 but GetStreamName might return UTF-16 too?
