@@ -145,20 +145,12 @@ static std::string BuildDividerName(bool folded, const std::string& hierarchy, c
 
 
 // Helper to find child by match name (safe for all group types)
+// Helper to find child by match name
+// Note: Do NOT use this for Layer Root (Named Group), use AEGP_GetNewStreamRefByMatchname directly instead.
+// This is safe for Contents/Vector Groups where custom streams might exist.
 static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH parentH, const char* matchName, AEGP_StreamRefH* outStreamH)
 {
     *outStreamH = NULL;
-    
-    // Check if it is a Named Group
-    AEGP_StreamGroupingType groupType;
-    if (suites.DynamicStreamSuite4()->AEGP_GetStreamGroupingType(parentH, &groupType) == A_Err_NONE) {
-        if (groupType == AEGP_StreamGroupingType_NAMED_GROUP) {
-             // Use direct lookup for Named Groups to avoid "invalid index in named group" errors
-             return suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, parentH, matchName, outStreamH);
-        }
-    }
-
-    // Iterative search for Indexed Groups
     A_long count = 0;
     A_Err err = A_Err_NONE;
     ERR(suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(parentH, &count));
@@ -169,10 +161,9 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
             char buf[AEGP_MAX_STREAM_MATCH_NAME_SIZE + 1];
             if (suites.DynamicStreamSuite4()->AEGP_GetMatchName(childH, buf) == A_Err_NONE) {
                 if (strcmp(buf, matchName) == 0) {
-                    *outStreamH = childH; // Found, caller must dispose
+                    *outStreamH = childH; 
                 }
             }
-            
             if (!*outStreamH) {
                 suites.StreamSuite4()->AEGP_DisposeStream(childH);
             }
