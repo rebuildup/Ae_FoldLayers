@@ -212,27 +212,29 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	
 	AEGP_StreamRefH rootStreamH = NULL;
 	// Use ROOT_VECTORS_GROUP
-	ERR(suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_ROOT_VECTORS_GROUP, &rootStreamH));
+	err = suites.StreamSuite4()->AEGP_GetNewLayerStream(S_my_id, layerH, AEGP_LayerStream_ROOT_VECTORS_GROUP, &rootStreamH);
+	if (err) {
+		// Report error for debugging
+		char errBuf[128];
+		sprintf(errBuf, "FoldLayers Debug: Failed to get Root Stream (Err: %d)", err);
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errBuf);
+		return err;
+	}
 	
 	if (!err && rootStreamH) {
 		// Add new group "FoldGroupData" directly to root
-		// Note: Usually we should look for "Contents" but adding to root vectors group (which IS contents for shape layer) works.
-		
 		AEGP_StreamRefH newGroupH = NULL;
-		// AddStream(parent, name, out_stream)
-		// We add a generic group first
 		ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(rootStreamH, "ADBE Vector Group", &newGroupH));
 		
 		if (!err && newGroupH) {
 			// Rename it to "FoldGroupData"
-			// Note: SetStreamName might limit characters or require specific context, but "FoldGroupData" should be safe.
 			ERR(suites.StreamSuite4()->AEGP_SetStreamName(newGroupH, "FoldGroupData"));
-			
-			// Hide it if possible? No easy way via SDK to set "Hidden" flag for stream, 
-			// but user said "make empty folder and enable management by name", so this is enough.
-			
+            // Debug success
+            // suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Identity Added");
 			suites.StreamSuite4()->AEGP_DisposeStream(newGroupH);
-		}
+		} else {
+            suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Failed to add stream");
+        }
 		
 		suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
 	}
@@ -240,7 +242,34 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	return err;
 }
 
-// Check if name starts with fold/unfold prefix OR has identity
+static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
+{
+	A_Err err = A_Err_NONE;
+	AEGP_CompH compH = NULL;
+	
+	ERR(GetActiveComp(suites, &compH));
+	if (!compH) return A_Err_NONE;
+	
+	// Check if any divider is selected
+	bool dividerSelected = false;
+	ERR(IsDividerSelected(suites, compH, &dividerSelected));
+    
+    // Debug
+    if (!dividerSelected) {
+         // Check if a layer is selected at all
+        AEGP_Collection2H collectionH = NULL;
+        A_u_long numSelected = 0;
+        if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE) {
+            suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
+            if (numSelected > 0) {
+                 // Selected but not identified as divider
+                 suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Layer selected but not recognized as Group");
+            }
+            suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+        }
+    }
+	
+	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
 static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	// First check legacy name-based (fast)
