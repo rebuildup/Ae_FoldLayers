@@ -162,7 +162,7 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
             }
         }
     }
-    return *outStreamH ? A_Err_NONE : A_Err_MISSING_UNNAMED_STREAM;
+    return *outStreamH ? A_Err_NONE : A_Err_GENERIC;
 }
 
 // Check if layer has specific stream/group "FoldGroupData"
