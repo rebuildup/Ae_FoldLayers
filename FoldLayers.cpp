@@ -477,7 +477,7 @@ static A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 
 // Get all dividers in the composition
 static A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
-                            std::vector<std::pair<AEGP_LayerH, A_long>>& dividers)
+                            std::vector<std::pair<AEGP_LayerH, A_long> >& dividers)
 {
 	A_Err err = A_Err_NONE;
 	A_long numLayers = 0;
