@@ -173,7 +173,6 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
 // Check if layer has specific stream/group "FoldGroupData"
 static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
-	A_Err err = A_Err_NONE;
 	if (!layerH) return false;
 	
 	bool hasIdentity = false;
@@ -245,7 +244,11 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	err = suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH);
 	if (err) {
 		char errBuf[128];
+#ifdef AE_OS_WIN
 		sprintf_s(errBuf, sizeof(errBuf), "FoldLayers Debug: Failed to get Layer Stream (Err: %d)", err);
+#else
+		snprintf(errBuf, sizeof(errBuf), "FoldLayers Debug: Failed to get Layer Stream (Err: %d)", err);
+#endif
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errBuf);
 		return err;
 	}
@@ -273,7 +276,11 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
         } else {
              // If Contents not found, maybe report debug info?
              char errBuf[128];
+#ifdef AE_OS_WIN
              sprintf_s(errBuf, sizeof(errBuf), "FoldLayers Debug: Failed to find Contents group (Err: %d)", err);
+#else
+             snprintf(errBuf, sizeof(errBuf), "FoldLayers Debug: Failed to find Contents group (Err: %d)", err);
+#endif
              suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errBuf);
         }
 		
@@ -312,7 +319,6 @@ static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH)
 {
     *outStreamH = NULL;
-    A_Err err = A_Err_NONE;
     AEGP_StreamRefH rootStreamH = NULL;
     
     if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH) != A_Err_NONE) return A_Err_GENERIC;
