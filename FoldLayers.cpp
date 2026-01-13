@@ -487,13 +487,12 @@ static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 // Parse hierarchy from name like "▾(1/B) Group" -> "1/B"
 static std::string GetHierarchy(const std::string& name)
 {
-	// Skip the prefix (3 bytes for triangle + 1 for space)
-	if (name.length() < 4) return "";
-	
-	size_t pos = 4;  // After "▾ " or "▸ "
-	
-	// Skip space if present after prefix
-	while (pos < name.length() && name[pos] == ' ') pos++;
+    size_t pos = 0;
+    if (name.length() >= 4 && (name.substr(0, 4) == PREFIX_FOLDED || name.substr(0, 4) == PREFIX_UNFOLDED)) {
+        pos = 4;
+        // Skip space if present after prefix
+        while (pos < name.length() && name[pos] == ' ') pos++;
+    }
 	
 	// Check for hierarchy marker
 	if (pos < name.length() && name[pos] == '(') {
@@ -521,9 +520,14 @@ static int GetHierarchyDepth(const std::string& hierarchy)
 // Get display name without prefix and hierarchy
 static std::string GetDividerName(const std::string& fullName)
 {
-	if (fullName.length() <= 4) return "Group";
-	
-	size_t pos = 4;  // After prefix
+    size_t pos = 0;
+    
+    // Check if starts with Prefix (4 bytes)
+    if (fullName.length() >= 4) {
+        if (fullName.substr(0, 4) == PREFIX_FOLDED || fullName.substr(0, 4) == PREFIX_UNFOLDED) {
+            pos = 4;
+        }
+    }
 	
 	// Skip hierarchy if present
 	if (pos < fullName.length() && fullName[pos] == '(') {
@@ -535,7 +539,8 @@ static std::string GetDividerName(const std::string& fullName)
 		}
 	}
 	
-	if (pos >= fullName.length()) return "Group";
+	if (pos > 0 && pos >= fullName.length()) return "Group";
+    if (pos == 0) return fullName;
 	return fullName.substr(pos);
 }
 
