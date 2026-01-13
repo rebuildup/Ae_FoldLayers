@@ -572,7 +572,7 @@ static A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 {
 	A_Err err = A_Err_NONE;
 	
-	std::vector<std::pair<AEGP_LayerH, A_long>> dividers;
+	std::vector<std::pair<AEGP_LayerH, A_long> > dividers;
 	ERR(GetAllDividers(suites, compH, dividers));
 	
 	if (!err && !dividers.empty()) {
@@ -644,7 +644,7 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 					std::string selHierarchy = GetHierarchy(selName);
 					// Find next available sub-level
 					// Count existing children at this level
-					std::vector<std::pair<AEGP_LayerH, A_long>> allDividers;
+					std::vector<std::pair<AEGP_LayerH, A_long> > allDividers;
 					ERR(GetAllDividers(suites, compH, allDividers));
 					
 					int childCount = 0;
@@ -840,8 +840,6 @@ static A_Err IdleHook(
 	AEGP_IdleRefcon		refconPV,
 	A_long				*max_sleepPL)
 {
-	A_Err err = A_Err_NONE;
-	
 	S_idle_counter++;
 	
 	AEGP_SuiteHandler suites(sP);
