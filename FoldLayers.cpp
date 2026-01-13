@@ -140,6 +140,10 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 	   Focusing on fixing build first.
 	*/
 	
+	// Prevent unused parameter warnings
+	(void)suites;
+	(void)layerH;
+	
 	/*
 	if (!layerH) return false;
 	
@@ -201,6 +205,10 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 // Add identification group to layer
 static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
+	// Prevent unused parameter warnings
+	(void)suites;
+	(void)layerH;
+
 	/*
 	A_Err err = A_Err_NONE;
 	if (!layerH) return A_Err_STRUCT;
