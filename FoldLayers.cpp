@@ -13,8 +13,8 @@
 /*******************************************************************/
 
 #include <ctime>
-#include <atomic>
-#include <mutex>
+#include <pthread.h>
+#include <unistd.h>
 #define _CRT_SECURE_NO_WARNINGS
 #include "FoldLayers.h"
 
@@ -1097,16 +1097,27 @@ static A_Err ProcessDoubleClick()
 static bool S_pending_fold_action = false;
 static double S_last_left_down_event_ts = 0.0;
 static double S_last_click_event_ts = 0.0;
-static std::atomic<bool> S_is_divider_selected_for_input(false);
 
 static CFMachPortRef S_event_tap = NULL;
 static CFRunLoopSourceRef S_event_tap_source = NULL;
 static bool S_event_tap_active = false;
 
-static std::mutex S_mac_sel_mutex;
+static pthread_mutex_t S_mac_state_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool S_mac_divider_selected_for_input = false;
 static std::string S_mac_selected_divider_full_name;
 static std::string S_mac_selected_divider_base_name;
 static bool S_mac_selected_divider_valid = false;
+
+static bool CFStringContainsName(CFStringRef s, const std::string& fullName, const std::string& baseName)
+{
+	if (!s) return false;
+	char buf[2048];
+	if (!CFStringGetCString(s, buf, (CFIndex)sizeof(buf), kCFStringEncodingUTF8)) return false;
+	const std::string hay(buf);
+	if (!fullName.empty() && hay.find(fullName) != std::string::npos) return true;
+	if (!baseName.empty() && hay.find(baseName) != std::string::npos) return true;
+	return false;
+}
 
 static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 {
@@ -1115,12 +1126,14 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 	// selected divider's name. If this fails, return false to avoid false positives.
 	std::string fullName;
 	std::string baseName;
-	{
-		std::lock_guard<std::mutex> lock(S_mac_sel_mutex);
-		if (!S_mac_selected_divider_valid) return false;
+	pthread_mutex_lock(&S_mac_state_mutex);
+	const bool valid = S_mac_selected_divider_valid;
+	if (valid) {
 		fullName = S_mac_selected_divider_full_name;
 		baseName = S_mac_selected_divider_base_name;
 	}
+	pthread_mutex_unlock(&S_mac_state_mutex);
+	if (!valid) return false;
 	if (fullName.empty() && baseName.empty()) return false;
 
 	AXUIElementRef systemWide = AXUIElementCreateSystemWide();
@@ -1139,19 +1152,9 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 		return false;
 	}
 
-	auto cfStringContains = [&](CFStringRef s) -> bool {
-		if (!s) return false;
-		char buf[2048];
-		if (!CFStringGetCString(s, buf, (CFIndex)sizeof(buf), kCFStringEncodingUTF8)) return false;
-		const std::string hay(buf);
-		if (!fullName.empty() && hay.find(fullName) != std::string::npos) return true;
-		if (!baseName.empty() && hay.find(baseName) != std::string::npos) return true;
-		return false;
-	};
-
 	CFTypeRef titleV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXTitleAttribute, &titleV) == kAXErrorSuccess && titleV) {
-		if (CFGetTypeID(titleV) == CFStringGetTypeID() && cfStringContains((CFStringRef)titleV)) {
+		if (CFGetTypeID(titleV) == CFStringGetTypeID() && CFStringContainsName((CFStringRef)titleV, fullName, baseName)) {
 			CFRelease(titleV);
 			CFRelease(hit);
 			return true;
@@ -1161,7 +1164,7 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 
 	CFTypeRef valueV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXValueAttribute, &valueV) == kAXErrorSuccess && valueV) {
-		if (CFGetTypeID(valueV) == CFStringGetTypeID() && cfStringContains((CFStringRef)valueV)) {
+		if (CFGetTypeID(valueV) == CFStringGetTypeID() && CFStringContainsName((CFStringRef)valueV, fullName, baseName)) {
 			CFRelease(valueV);
 			CFRelease(hit);
 			return true;
@@ -1171,7 +1174,7 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 
 	CFTypeRef descV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXDescriptionAttribute, &descV) == kAXErrorSuccess && descV) {
-		if (CFGetTypeID(descV) == CFStringGetTypeID() && cfStringContains((CFStringRef)descV)) {
+		if (CFGetTypeID(descV) == CFStringGetTypeID() && CFStringContainsName((CFStringRef)descV, fullName, baseName)) {
 			CFRelease(descV);
 			CFRelease(hit);
 			return true;
@@ -1199,7 +1202,11 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 
 	if (type == kCGEventLeftMouseDown) {
 		const int64_t clickState = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
-		if (clickState == 2 && S_is_divider_selected_for_input.load(std::memory_order_relaxed)) {
+		pthread_mutex_lock(&S_mac_state_mutex);
+		const bool selected = S_mac_divider_selected_for_input;
+		pthread_mutex_unlock(&S_mac_state_mutex);
+
+		if (clickState == 2 && selected) {
 			const CGPoint loc = CGEventGetLocation(event);
 			if (MacHitTestLooksLikeSelectedDivider(loc)) {
 			// Suppress AE's default double-click handling (and its "beep"),
@@ -1337,33 +1344,35 @@ static A_Err IdleHook(
 #endif
 
 #ifdef AE_OS_MAC
-	S_is_divider_selected_for_input.store(dividerSelected, std::memory_order_relaxed);
-	{
-		// Cache selected divider name for hit-testing in the event tap.
-		std::lock_guard<std::mutex> lock(S_mac_sel_mutex);
-		S_mac_selected_divider_valid = false;
-		S_mac_selected_divider_full_name.clear();
-		S_mac_selected_divider_base_name.clear();
-		if (dividerSelected) {
-			AEGP_Collection2H collectionH = NULL;
-			A_u_long numSelected = 0;
-			if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE && collectionH) {
-				suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
-				if (numSelected == 1) {
-					AEGP_CollectionItemV2 item;
-					if (suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item) == A_Err_NONE &&
-						item.type == AEGP_CollectionItemType_LAYER) {
-						std::string name;
-						if (GetLayerNameStr(suites, item.u.layer.layerH, name) == A_Err_NONE &&
-							IsDividerLayerWithKnownName(suites, item.u.layer.layerH, name)) {
-							S_mac_selected_divider_full_name = name;
-							S_mac_selected_divider_base_name = GetDividerName(name);
-							S_mac_selected_divider_valid = true;
-						}
+	// Cache selected divider name for hit-testing in the event tap.
+	pthread_mutex_lock(&S_mac_state_mutex);
+	S_mac_divider_selected_for_input = dividerSelected;
+	S_mac_selected_divider_valid = false;
+	S_mac_selected_divider_full_name.clear();
+	S_mac_selected_divider_base_name.clear();
+	pthread_mutex_unlock(&S_mac_state_mutex);
+
+	if (dividerSelected) {
+		AEGP_Collection2H collectionH = NULL;
+		A_u_long numSelected = 0;
+		if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE && collectionH) {
+			suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
+			if (numSelected == 1) {
+				AEGP_CollectionItemV2 item;
+				if (suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item) == A_Err_NONE &&
+					item.type == AEGP_CollectionItemType_LAYER) {
+					std::string name;
+					if (GetLayerNameStr(suites, item.u.layer.layerH, name) == A_Err_NONE &&
+						IsDividerLayerWithKnownName(suites, item.u.layer.layerH, name)) {
+						pthread_mutex_lock(&S_mac_state_mutex);
+						S_mac_selected_divider_full_name = name;
+						S_mac_selected_divider_base_name = GetDividerName(name);
+						S_mac_selected_divider_valid = true;
+						pthread_mutex_unlock(&S_mac_state_mutex);
 					}
 				}
-				suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 			}
+			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		}
 	}
 	InstallMacEventTap();
