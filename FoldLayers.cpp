@@ -1096,7 +1096,7 @@ static A_Err ProcessDoubleClick()
 static bool S_pending_fold_action = false;
 static double S_last_left_down_event_ts = 0.0;
 static double S_last_click_event_ts = 0.0;
-static std::atomic<bool> S_is_divider_selected_for_input{ false };
+static std::atomic<bool> S_is_divider_selected_for_input(false);
 
 static CFMachPortRef S_event_tap = NULL;
 static CFRunLoopSourceRef S_event_tap_source = NULL;
