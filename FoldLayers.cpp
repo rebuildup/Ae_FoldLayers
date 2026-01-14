@@ -1107,18 +1107,16 @@ static bool S_event_tap_active = false;
 static pthread_mutex_t S_mac_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool S_mac_divider_selected_for_input = false;
 static std::string S_mac_selected_divider_full_name;
-static std::string S_mac_selected_divider_base_name;
 static bool S_mac_selected_divider_valid = false;
 static double S_mac_selected_divider_cached_at = 0.0;
 
-static bool CFStringContainsName(CFStringRef s, const std::string& fullName, const std::string& baseName)
+static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullName)
 {
 	if (!s) return false;
 	char buf[2048];
 	if (!CFStringGetCString(s, buf, (CFIndex)sizeof(buf), kCFStringEncodingUTF8)) return false;
 	const std::string hay(buf);
 	if (!fullName.empty() && hay.find(fullName) != std::string::npos) return true;
-	if (!baseName.empty() && hay.find(baseName) != std::string::npos) return true;
 	return false;
 }
 
@@ -1128,13 +1126,11 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 	// mouse, only allow the toggle when that element appears to reference the
 	// selected divider's name. If this fails, return false to avoid false positives.
 	std::string fullName;
-	std::string baseName;
 	pthread_mutex_lock(&S_mac_state_mutex);
 	const bool valid = S_mac_selected_divider_valid;
 	const double cachedAt = S_mac_selected_divider_cached_at;
 	if (valid) {
 		fullName = S_mac_selected_divider_full_name;
-		baseName = S_mac_selected_divider_base_name;
 	}
 	pthread_mutex_unlock(&S_mac_state_mutex);
 	if (!valid) return false;
@@ -1144,7 +1140,7 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 		const double age = now - cachedAt;
 		if (age < 0.0 || age > 2.0) return false;
 	}
-	if (fullName.empty() && baseName.empty()) return false;
+	if (fullName.empty()) return false;
 
 	AXUIElementRef systemWide = AXUIElementCreateSystemWide();
 	if (!systemWide) return false;
@@ -1164,7 +1160,7 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 
 	CFTypeRef titleV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXTitleAttribute, &titleV) == kAXErrorSuccess && titleV) {
-		if (CFGetTypeID(titleV) == CFStringGetTypeID() && CFStringContainsName((CFStringRef)titleV, fullName, baseName)) {
+		if (CFGetTypeID(titleV) == CFStringGetTypeID() && CFStringContainsDividerName((CFStringRef)titleV, fullName)) {
 			CFRelease(titleV);
 			CFRelease(hit);
 			return true;
@@ -1174,7 +1170,7 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 
 	CFTypeRef valueV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXValueAttribute, &valueV) == kAXErrorSuccess && valueV) {
-		if (CFGetTypeID(valueV) == CFStringGetTypeID() && CFStringContainsName((CFStringRef)valueV, fullName, baseName)) {
+		if (CFGetTypeID(valueV) == CFStringGetTypeID() && CFStringContainsDividerName((CFStringRef)valueV, fullName)) {
 			CFRelease(valueV);
 			CFRelease(hit);
 			return true;
@@ -1184,7 +1180,7 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 
 	CFTypeRef descV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXDescriptionAttribute, &descV) == kAXErrorSuccess && descV) {
-		if (CFGetTypeID(descV) == CFStringGetTypeID() && CFStringContainsName((CFStringRef)descV, fullName, baseName)) {
+		if (CFGetTypeID(descV) == CFStringGetTypeID() && CFStringContainsDividerName((CFStringRef)descV, fullName)) {
 			CFRelease(descV);
 			CFRelease(hit);
 			return true;
@@ -1272,6 +1268,11 @@ static void InstallMacEventTap()
 }
 
 static void PollMouseState() {
+	// If the event tap is active, it becomes the source of truth for double-click
+	// detection/suppression. The polling fallback is intentionally disabled to
+	// avoid triggering toggles from unrelated double-clicks elsewhere in AE UI.
+	if (S_event_tap_active) return;
+
 	// Polling-based approach: use the timestamp of the most recent left-mouse-down
 	// event, derived from "seconds since last event". This avoids missing clicks
 	// due to low polling frequency and avoids using CPU-time (clock()).
@@ -1381,7 +1382,6 @@ static A_Err IdleHook(
 						IsDividerLayerWithKnownName(suites, item.u.layer.layerH, name)) {
 						pthread_mutex_lock(&S_mac_state_mutex);
 						S_mac_selected_divider_full_name = name;
-						S_mac_selected_divider_base_name = GetDividerName(name);
 						S_mac_selected_divider_valid = true;
 						S_mac_selected_divider_cached_at = CFAbsoluteTimeGetCurrent();
 						pthread_mutex_unlock(&S_mac_state_mutex);
@@ -1398,8 +1398,17 @@ static A_Err IdleHook(
     if (S_pending_fold_action) {
         S_pending_fold_action = false;
         if (dividerSelected) {
-             DoFoldUnfold(suites);
-        }
+			// Final gate: only toggle when the double-click happened on the selected
+			// divider row. Without this, double-clicking elsewhere in AE UI can toggle.
+			CGEventRef ev = CGEventCreate(NULL);
+			if (ev) {
+				const CGPoint loc = CGEventGetLocation(ev);
+				CFRelease(ev);
+				if (MacHitTestLooksLikeSelectedDivider(loc)) {
+					DoFoldUnfold(suites);
+				}
+			}
+		}
     }
 #endif
 	
