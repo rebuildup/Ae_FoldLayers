@@ -1109,6 +1109,20 @@ static bool S_mac_divider_selected_for_input = false;
 static std::string S_mac_selected_divider_full_name;
 static bool S_mac_selected_divider_valid = false;
 static double S_mac_selected_divider_cached_at = 0.0;
+static bool S_mac_ax_trusted_cached = false;
+static bool S_mac_ax_trust_cached_valid = false;
+static bool S_mac_should_warn_ax = false;
+static bool S_mac_warned_ax = false;
+
+static bool MacAXTrusted()
+{
+	if (S_mac_ax_trust_cached_valid) return S_mac_ax_trusted_cached;
+	// Accessibility trust is required for reliable hit-testing via AX.
+	const bool trusted = AXIsProcessTrusted() ? true : false;
+	S_mac_ax_trusted_cached = trusted;
+	S_mac_ax_trust_cached_valid = true;
+	return trusted;
+}
 
 static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullName)
 {
@@ -1224,6 +1238,19 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 			}
 
 			const CGPoint loc = CGEventGetLocation(event);
+			const bool axTrusted = MacAXTrusted();
+			if (!axTrusted) {
+				// Without Accessibility permission we cannot reliably hit-test the UI element.
+				// Fall back to selection-only behavior (may toggle from elsewhere); keep swallow to suppress beep.
+				pthread_mutex_lock(&S_mac_state_mutex);
+				S_mac_should_warn_ax = true;
+				pthread_mutex_unlock(&S_mac_state_mutex);
+
+				S_pending_fold_action = true;
+				S_last_click_event_ts = 0.0;
+				return NULL;
+			}
+
 			if (MacHitTestLooksLikeSelectedDivider(loc)) {
 			// Suppress AE's default double-click handling (and its "beep"),
 			// and route the action to our fold/unfold logic.
@@ -1398,18 +1425,34 @@ static A_Err IdleHook(
     if (S_pending_fold_action) {
         S_pending_fold_action = false;
         if (dividerSelected) {
-			// Final gate: only toggle when the double-click happened on the selected
-			// divider row. Without this, double-clicking elsewhere in AE UI can toggle.
-			CGEventRef ev = CGEventCreate(NULL);
-			if (ev) {
-				const CGPoint loc = CGEventGetLocation(ev);
-				CFRelease(ev);
-				if (MacHitTestLooksLikeSelectedDivider(loc)) {
-					DoFoldUnfold(suites);
+			const bool axTrusted = MacAXTrusted();
+			if (axTrusted) {
+				// Final gate: only toggle when the double-click happened on the selected divider row.
+				CGEventRef ev = CGEventCreate(NULL);
+				if (ev) {
+					const CGPoint loc = CGEventGetLocation(ev);
+					CFRelease(ev);
+					if (MacHitTestLooksLikeSelectedDivider(loc)) {
+						DoFoldUnfold(suites);
+					}
 				}
+			} else {
+				// No Accessibility permission: can't hit-test, so allow selection-based toggle.
+				DoFoldUnfold(suites);
 			}
-		}
+        }
     }
+
+	// One-time guidance if we're running without Accessibility trust.
+	pthread_mutex_lock(&S_mac_state_mutex);
+	const bool shouldWarnAx = S_mac_should_warn_ax && !S_mac_warned_ax;
+	if (shouldWarnAx) S_mac_warned_ax = true;
+	pthread_mutex_unlock(&S_mac_state_mutex);
+	if (shouldWarnAx) {
+		suites.UtilitySuite6()->AEGP_ReportInfo(
+			S_my_id,
+			"FoldLayers: For accurate double-click hit-testing on Mac, enable After Effects in System Settings > Privacy & Security > Accessibility. (Without it, FoldLayers falls back to selection-only behavior.)");
+	}
 #endif
 	
 	*max_sleepPL = 50; 
