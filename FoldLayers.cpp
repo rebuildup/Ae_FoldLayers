@@ -13,6 +13,7 @@
 /*******************************************************************/
 
 #include <ctime>
+#include <atomic>
 #define _CRT_SECURE_NO_WARNINGS
 #include "FoldLayers.h"
 
@@ -1095,8 +1096,73 @@ static A_Err ProcessDoubleClick()
 static bool S_pending_fold_action = false;
 static double S_last_left_down_event_ts = 0.0;
 static double S_last_click_event_ts = 0.0;
+static std::atomic<bool> S_is_divider_selected_for_input{ false };
+
+static CFMachPortRef S_event_tap = NULL;
+static CFRunLoopSourceRef S_event_tap_source = NULL;
+static bool S_event_tap_active = false;
+
+static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void* refcon)
+{
+	(void)proxy;
+	(void)refcon;
+
+	if (!event) return event;
+
+	if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+		if (S_event_tap) {
+			CGEventTapEnable(S_event_tap, true);
+		}
+		return event;
+	}
+
+	if (type == kCGEventLeftMouseDown) {
+		const int64_t clickState = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
+		if (clickState == 2 && S_is_divider_selected_for_input.load(std::memory_order_relaxed)) {
+			// Suppress AE's default double-click handling (and its "beep"),
+			// and route the action to our fold/unfold logic.
+			S_pending_fold_action = true;
+			S_last_click_event_ts = 0.0; // ensure polling fallback won't re-trigger
+			return NULL; // swallow event
+		}
+	}
+
+	return event;
+}
+
+static void InstallMacEventTap()
+{
+	if (S_event_tap_active) return;
+	if (S_event_tap || S_event_tap_source) return;
+
+	CGEventMask mask = CGEventMaskBit(kCGEventLeftMouseDown);
+	S_event_tap = CGEventTapCreate(
+		kCGSessionEventTap,
+		kCGHeadInsertEventTap,
+		0,
+		mask,
+		EventTapCallback,
+		NULL);
+
+	if (!S_event_tap) {
+		return;
+	}
+
+	S_event_tap_source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, S_event_tap, 0);
+	if (!S_event_tap_source) {
+		CFRelease(S_event_tap);
+		S_event_tap = NULL;
+		return;
+	}
+
+	CFRunLoopAddSource(CFRunLoopGetCurrent(), S_event_tap_source, kCFRunLoopCommonModes);
+	CGEventTapEnable(S_event_tap, true);
+	S_event_tap_active = true;
+}
 
 static void PollMouseState() {
+	if (S_event_tap_active) return; // event tap handles both detection and suppression
+
 	// Polling-based approach: use the timestamp of the most recent left-mouse-down
 	// event, derived from "seconds since last event". This avoids missing clicks
 	// due to low polling frequency and avoids using CPU-time (clock()).
@@ -1187,6 +1253,9 @@ static A_Err IdleHook(
 #endif
 
 #ifdef AE_OS_MAC
+	S_is_divider_selected_for_input.store(dividerSelected, std::memory_order_relaxed);
+	InstallMacEventTap();
+
     PollMouseState();
     
     if (S_pending_fold_action) {
@@ -1212,6 +1281,7 @@ static A_Err UpdateMenuHook(
 {
 	A_Err err = A_Err_NONE;
 #ifdef AE_OS_MAC
+	InstallMacEventTap();
     PollMouseState();
     if (S_pending_fold_action) {
         S_pending_fold_action = false;
@@ -1288,6 +1358,11 @@ extern "C" DllExport A_Err EntryPointFunc(
 	
 	// Install mouse hook to detect double-clicks
 	S_mouse_hook = SetWindowsHookEx(WH_MOUSE, MouseProc, NULL, GetCurrentThreadId());
+#endif
+
+#ifdef AE_OS_MAC
+	// Best-effort install. If it fails, polling fallback still works (but can't suppress AE beep).
+	InstallMacEventTap();
 #endif
 	
 	AEGP_SuiteHandler suites(sP);
