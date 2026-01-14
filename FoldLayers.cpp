@@ -14,7 +14,7 @@
 
 #include <ctime>
 #include <atomic>
-#include <cstdint>
+#include <mutex>
 #define _CRT_SECURE_NO_WARNINGS
 #include "FoldLayers.h"
 
@@ -1098,11 +1098,90 @@ static bool S_pending_fold_action = false;
 static double S_last_left_down_event_ts = 0.0;
 static double S_last_click_event_ts = 0.0;
 static std::atomic<bool> S_is_divider_selected_for_input(false);
-static std::atomic<int64_t> S_last_divider_selected_ms(0);
 
 static CFMachPortRef S_event_tap = NULL;
 static CFRunLoopSourceRef S_event_tap_source = NULL;
 static bool S_event_tap_active = false;
+
+static std::mutex S_mac_sel_mutex;
+static std::string S_mac_selected_divider_full_name;
+static std::string S_mac_selected_divider_base_name;
+static bool S_mac_selected_divider_valid = false;
+
+static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
+{
+	// Best-effort: If we can use Accessibility to find the UI element under the
+	// mouse, only allow the toggle when that element appears to reference the
+	// selected divider's name. If this fails, return false to avoid false positives.
+	std::string fullName;
+	std::string baseName;
+	{
+		std::lock_guard<std::mutex> lock(S_mac_sel_mutex);
+		if (!S_mac_selected_divider_valid) return false;
+		fullName = S_mac_selected_divider_full_name;
+		baseName = S_mac_selected_divider_base_name;
+	}
+	if (fullName.empty() && baseName.empty()) return false;
+
+	AXUIElementRef systemWide = AXUIElementCreateSystemWide();
+	if (!systemWide) return false;
+
+	AXUIElementRef hit = NULL;
+	AXError axErr = AXUIElementCopyElementAtPosition(systemWide, globalPos.x, globalPos.y, &hit);
+	CFRelease(systemWide);
+	if (axErr != kAXErrorSuccess || !hit) return false;
+
+	pid_t pid = 0;
+	AXUIElementGetPid(hit, &pid);
+	const pid_t myPid = getpid();
+	if (pid != myPid) {
+		CFRelease(hit);
+		return false;
+	}
+
+	auto cfStringContains = [&](CFStringRef s) -> bool {
+		if (!s) return false;
+		char buf[2048];
+		if (!CFStringGetCString(s, buf, (CFIndex)sizeof(buf), kCFStringEncodingUTF8)) return false;
+		const std::string hay(buf);
+		if (!fullName.empty() && hay.find(fullName) != std::string::npos) return true;
+		if (!baseName.empty() && hay.find(baseName) != std::string::npos) return true;
+		return false;
+	};
+
+	CFTypeRef titleV = NULL;
+	if (AXUIElementCopyAttributeValue(hit, kAXTitleAttribute, &titleV) == kAXErrorSuccess && titleV) {
+		if (CFGetTypeID(titleV) == CFStringGetTypeID() && cfStringContains((CFStringRef)titleV)) {
+			CFRelease(titleV);
+			CFRelease(hit);
+			return true;
+		}
+		CFRelease(titleV);
+	}
+
+	CFTypeRef valueV = NULL;
+	if (AXUIElementCopyAttributeValue(hit, kAXValueAttribute, &valueV) == kAXErrorSuccess && valueV) {
+		if (CFGetTypeID(valueV) == CFStringGetTypeID() && cfStringContains((CFStringRef)valueV)) {
+			CFRelease(valueV);
+			CFRelease(hit);
+			return true;
+		}
+		CFRelease(valueV);
+	}
+
+	CFTypeRef descV = NULL;
+	if (AXUIElementCopyAttributeValue(hit, kAXDescriptionAttribute, &descV) == kAXErrorSuccess && descV) {
+		if (CFGetTypeID(descV) == CFStringGetTypeID() && cfStringContains((CFStringRef)descV)) {
+			CFRelease(descV);
+			CFRelease(hit);
+			return true;
+		}
+		CFRelease(descV);
+	}
+
+	CFRelease(hit);
+	return false;
+}
 
 static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void* refcon)
 {
@@ -1118,15 +1197,11 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 		return event;
 	}
 
-	if (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp) {
+	if (type == kCGEventLeftMouseDown) {
 		const int64_t clickState = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
-		if (clickState >= 2) {
-			const double now = CFAbsoluteTimeGetCurrent();
-			const int64_t nowMs = (int64_t)(now * 1000.0);
-			const int64_t lastSelectedMs = S_last_divider_selected_ms.load(std::memory_order_relaxed);
-			const bool recentDividerSelection = (lastSelectedMs > 0) && (nowMs - lastSelectedMs >= 0) && (nowMs - lastSelectedMs <= 250);
-
-			if (S_is_divider_selected_for_input.load(std::memory_order_relaxed) || recentDividerSelection) {
+		if (clickState == 2 && S_is_divider_selected_for_input.load(std::memory_order_relaxed)) {
+			const CGPoint loc = CGEventGetLocation(event);
+			if (MacHitTestLooksLikeSelectedDivider(loc)) {
 			// Suppress AE's default double-click handling (and its "beep"),
 			// and route the action to our fold/unfold logic.
 			S_pending_fold_action = true;
@@ -1263,9 +1338,33 @@ static A_Err IdleHook(
 
 #ifdef AE_OS_MAC
 	S_is_divider_selected_for_input.store(dividerSelected, std::memory_order_relaxed);
-	if (dividerSelected) {
-		const int64_t nowMs = (int64_t)(CFAbsoluteTimeGetCurrent() * 1000.0);
-		S_last_divider_selected_ms.store(nowMs, std::memory_order_relaxed);
+	{
+		// Cache selected divider name for hit-testing in the event tap.
+		std::lock_guard<std::mutex> lock(S_mac_sel_mutex);
+		S_mac_selected_divider_valid = false;
+		S_mac_selected_divider_full_name.clear();
+		S_mac_selected_divider_base_name.clear();
+		if (dividerSelected) {
+			AEGP_Collection2H collectionH = NULL;
+			A_u_long numSelected = 0;
+			if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE && collectionH) {
+				suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
+				if (numSelected == 1) {
+					AEGP_CollectionItemV2 item;
+					if (suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item) == A_Err_NONE &&
+						item.type == AEGP_CollectionItemType_LAYER) {
+						std::string name;
+						if (GetLayerNameStr(suites, item.u.layer.layerH, name) == A_Err_NONE &&
+							IsDividerLayerWithKnownName(suites, item.u.layer.layerH, name)) {
+							S_mac_selected_divider_full_name = name;
+							S_mac_selected_divider_base_name = GetDividerName(name);
+							S_mac_selected_divider_valid = true;
+						}
+					}
+				}
+				suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+			}
+		}
 	}
 	InstallMacEventTap();
 
