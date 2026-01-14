@@ -849,7 +849,9 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		return A_Err_NONE;
 	}
 	
-	A_long insertIndex = 0;
+	// If nothing is selected, create at the very top (index 0).
+	// This matches the "apply to all" intention when no layer is selected.
+	A_long insertIndex = -1;
 	std::string parentHierarchy = "";
 	
 	// Find insert position and parent hierarchy
@@ -935,12 +937,12 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		std::string dividerName = BuildDividerName(false, parentHierarchy, "Group");
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
 		
-		// Move to insert position (BELOW the selected layer, so index + 1)
-		// Note: AEGP_ReorderLayer takes the new index. 
-		// If we want it after insertIndex, we should use insertIndex + 1.
-		if (insertIndex >= 0) { // insertIndex is 0-based
-			ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, insertIndex + 1));
-		}
+		// Move to insert position.
+		// - If a layer is selected: place the divider directly below it.
+		// - If nothing is selected: place the divider at the top (index 0).
+		// Note: This project treats layer indices as 0-based (see GetCompLayerByIndex loops).
+		const A_long targetIndex = (insertIndex >= 0) ? (insertIndex + 1) : 0;
+		ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, targetIndex));
 		
 		// Set VIDEO OFF (invisible)
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_VIDEO_ACTIVE, FALSE));
