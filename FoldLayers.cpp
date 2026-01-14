@@ -1109,6 +1109,7 @@ static bool S_mac_divider_selected_for_input = false;
 static std::string S_mac_selected_divider_full_name;
 static std::string S_mac_selected_divider_base_name;
 static bool S_mac_selected_divider_valid = false;
+static double S_mac_selected_divider_cached_at = 0.0;
 
 static bool CFStringContainsName(CFStringRef s, const std::string& fullName, const std::string& baseName)
 {
@@ -1130,12 +1131,19 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 	std::string baseName;
 	pthread_mutex_lock(&S_mac_state_mutex);
 	const bool valid = S_mac_selected_divider_valid;
+	const double cachedAt = S_mac_selected_divider_cached_at;
 	if (valid) {
 		fullName = S_mac_selected_divider_full_name;
 		baseName = S_mac_selected_divider_base_name;
 	}
 	pthread_mutex_unlock(&S_mac_state_mutex);
 	if (!valid) return false;
+	// Avoid stale matches if selection changed long ago.
+	if (cachedAt > 0.0) {
+		const double now = CFAbsoluteTimeGetCurrent();
+		const double age = now - cachedAt;
+		if (age < 0.0 || age > 2.0) return false;
+	}
 	if (fullName.empty() && baseName.empty()) return false;
 
 	AXUIElementRef systemWide = AXUIElementCreateSystemWide();
@@ -1206,9 +1214,19 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 		const int64_t clickState = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
 		pthread_mutex_lock(&S_mac_state_mutex);
 		const bool selected = S_mac_divider_selected_for_input;
+		const bool cachedValid = S_mac_selected_divider_valid;
+		const double cachedAt = S_mac_selected_divider_cached_at;
 		pthread_mutex_unlock(&S_mac_state_mutex);
 
-		if (clickState == 2 && selected) {
+		// Only act on true double-click.
+		if (clickState == 2 && (selected || cachedValid)) {
+			// If cache is very stale, don't risk false positives.
+			if (cachedAt > 0.0) {
+				const double now = CFAbsoluteTimeGetCurrent();
+				const double age = now - cachedAt;
+				if (age < 0.0 || age > 2.0) return event;
+			}
+
 			const CGPoint loc = CGEventGetLocation(event);
 			if (MacHitTestLooksLikeSelectedDivider(loc)) {
 			// Suppress AE's default double-click handling (and its "beep"),
@@ -1254,8 +1272,6 @@ static void InstallMacEventTap()
 }
 
 static void PollMouseState() {
-	if (S_event_tap_active) return; // event tap handles both detection and suppression
-
 	// Polling-based approach: use the timestamp of the most recent left-mouse-down
 	// event, derived from "seconds since last event". This avoids missing clicks
 	// due to low polling frequency and avoids using CPU-time (clock()).
@@ -1349,9 +1365,6 @@ static A_Err IdleHook(
 	// Cache selected divider name for hit-testing in the event tap.
 	pthread_mutex_lock(&S_mac_state_mutex);
 	S_mac_divider_selected_for_input = dividerSelected;
-	S_mac_selected_divider_valid = false;
-	S_mac_selected_divider_full_name.clear();
-	S_mac_selected_divider_base_name.clear();
 	pthread_mutex_unlock(&S_mac_state_mutex);
 
 	if (dividerSelected) {
@@ -1370,6 +1383,7 @@ static A_Err IdleHook(
 						S_mac_selected_divider_full_name = name;
 						S_mac_selected_divider_base_name = GetDividerName(name);
 						S_mac_selected_divider_valid = true;
+						S_mac_selected_divider_cached_at = CFAbsoluteTimeGetCurrent();
 						pthread_mutex_unlock(&S_mac_state_mutex);
 					}
 				}
