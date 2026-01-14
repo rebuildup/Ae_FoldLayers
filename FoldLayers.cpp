@@ -1109,19 +1109,15 @@ static bool S_mac_divider_selected_for_input = false;
 static std::string S_mac_selected_divider_full_name;
 static bool S_mac_selected_divider_valid = false;
 static double S_mac_selected_divider_cached_at = 0.0;
-static bool S_mac_ax_trusted_cached = false;
-static bool S_mac_ax_trust_cached_valid = false;
 static bool S_mac_should_warn_ax = false;
 static bool S_mac_warned_ax = false;
+static bool S_mac_ax_hit_test_usable = true;
 
 static bool MacAXTrusted()
 {
-	if (S_mac_ax_trust_cached_valid) return S_mac_ax_trusted_cached;
-	// Accessibility trust is required for reliable hit-testing via AX.
-	const bool trusted = AXIsProcessTrusted() ? true : false;
-	S_mac_ax_trusted_cached = trusted;
-	S_mac_ax_trust_cached_valid = true;
-	return trusted;
+	// Do not cache permanently: users often toggle Accessibility permissions
+	// while AE is running, and we must reflect that immediately.
+	return AXIsProcessTrusted() ? true : false;
 }
 
 static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullName)
@@ -1162,15 +1158,13 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 	AXUIElementRef hit = NULL;
 	AXError axErr = AXUIElementCopyElementAtPosition(systemWide, globalPos.x, globalPos.y, &hit);
 	CFRelease(systemWide);
-	if (axErr != kAXErrorSuccess || !hit) return false;
-
-	pid_t pid = 0;
-	AXUIElementGetPid(hit, &pid);
-	const pid_t myPid = getpid();
-	if (pid != myPid) {
-		CFRelease(hit);
+	if (axErr != kAXErrorSuccess || !hit) {
+		// Even when trusted, some environments return errors. Mark as unusable so
+		// we can fall back to selection-only behavior instead of "never toggling".
+		S_mac_ax_hit_test_usable = false;
 		return false;
 	}
+	S_mac_ax_hit_test_usable = true;
 
 	CFTypeRef titleV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXTitleAttribute, &titleV) == kAXErrorSuccess && titleV) {
@@ -1251,7 +1245,9 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 				return NULL;
 			}
 
-			if (MacHitTestLooksLikeSelectedDivider(loc)) {
+			// If hit-testing isn't usable, fall back to selection-only behavior so
+			// the feature still works (but may toggle from elsewhere).
+			if (!S_mac_ax_hit_test_usable || MacHitTestLooksLikeSelectedDivider(loc)) {
 			// Suppress AE's default double-click handling (and its "beep"),
 			// and route the action to our fold/unfold logic.
 			S_pending_fold_action = true;
@@ -1424,9 +1420,9 @@ static A_Err IdleHook(
     
     if (S_pending_fold_action) {
         S_pending_fold_action = false;
-        if (dividerSelected) {
+		if (dividerSelected) {
 			const bool axTrusted = MacAXTrusted();
-			if (axTrusted) {
+			if (axTrusted && S_mac_ax_hit_test_usable) {
 				// Final gate: only toggle when the double-click happened on the selected divider row.
 				CGEventRef ev = CGEventCreate(NULL);
 				if (ev) {
@@ -1437,7 +1433,7 @@ static A_Err IdleHook(
 					}
 				}
 			} else {
-				// No Accessibility permission: can't hit-test, so allow selection-based toggle.
+				// No Accessibility permission OR hit-test is unusable: allow selection-based toggle.
 				DoFoldUnfold(suites);
 			}
         }
