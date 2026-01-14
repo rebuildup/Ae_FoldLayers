@@ -13,8 +13,10 @@
 /*******************************************************************/
 
 #include <ctime>
+#ifdef AE_OS_MAC
 #include <pthread.h>
 #include <unistd.h>
+#endif
 #define _CRT_SECURE_NO_WARNINGS
 #include "FoldLayers.h"
 
