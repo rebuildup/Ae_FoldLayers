@@ -14,6 +14,7 @@
 
 #include <ctime>
 #include <atomic>
+#include <cstdint>
 #define _CRT_SECURE_NO_WARNINGS
 #include "FoldLayers.h"
 
@@ -1097,6 +1098,7 @@ static bool S_pending_fold_action = false;
 static double S_last_left_down_event_ts = 0.0;
 static double S_last_click_event_ts = 0.0;
 static std::atomic<bool> S_is_divider_selected_for_input(false);
+static std::atomic<int64_t> S_last_divider_selected_ms(0);
 
 static CFMachPortRef S_event_tap = NULL;
 static CFRunLoopSourceRef S_event_tap_source = NULL;
@@ -1116,14 +1118,21 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 		return event;
 	}
 
-	if (type == kCGEventLeftMouseDown) {
+	if (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp) {
 		const int64_t clickState = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
-		if (clickState == 2 && S_is_divider_selected_for_input.load(std::memory_order_relaxed)) {
+		if (clickState >= 2) {
+			const double now = CFAbsoluteTimeGetCurrent();
+			const int64_t nowMs = (int64_t)(now * 1000.0);
+			const int64_t lastSelectedMs = S_last_divider_selected_ms.load(std::memory_order_relaxed);
+			const bool recentDividerSelection = (lastSelectedMs > 0) && (nowMs - lastSelectedMs >= 0) && (nowMs - lastSelectedMs <= 250);
+
+			if (S_is_divider_selected_for_input.load(std::memory_order_relaxed) || recentDividerSelection) {
 			// Suppress AE's default double-click handling (and its "beep"),
 			// and route the action to our fold/unfold logic.
 			S_pending_fold_action = true;
 			S_last_click_event_ts = 0.0; // ensure polling fallback won't re-trigger
 			return NULL; // swallow event
+			}
 		}
 	}
 
@@ -1254,6 +1263,10 @@ static A_Err IdleHook(
 
 #ifdef AE_OS_MAC
 	S_is_divider_selected_for_input.store(dividerSelected, std::memory_order_relaxed);
+	if (dividerSelected) {
+		const int64_t nowMs = (int64_t)(CFAbsoluteTimeGetCurrent() * 1000.0);
+		S_last_divider_selected_ms.store(nowMs, std::memory_order_relaxed);
+	}
 	InstallMacEventTap();
 
     PollMouseState();
