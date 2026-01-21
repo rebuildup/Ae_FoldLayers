@@ -1464,35 +1464,6 @@ static A_Err IdleHook(
 	// Default to not selected
 	bool dividerSelected = false;
 	IsDividerSelected(suites, compH, &dividerSelected);
-
-	// Periodic Hierarchy Recovery (Restore hierarchy info from hidden groups)
-	// Check every 30 idle ticks (~1.5 seconds) to detect renames and restore hierarchy
-	if (S_idle_counter % 30 == 0) {
-		A_long numLayers = 0;
-		if (suites.LayerSuite9()->AEGP_GetCompNumLayers(compH, &numLayers) == A_Err_NONE) {
-			for (A_long i = 0; i < numLayers; i++) {
-				AEGP_LayerH layer = NULL;
-				if (suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &layer) == A_Err_NONE && layer) {
-					// Only process layers with hidden divider identity
-					if (HasDividerIdentity(suites, layer)) {
-						std::string currentName;
-						if (GetLayerNameStr(suites, layer, currentName) == A_Err_NONE) {
-							std::string currentHierarchy = GetHierarchy(currentName);
-							std::string hiddenHierarchy = GetHierarchyFromHiddenGroup(suites, layer);
-
-							// If hidden hierarchy exists but current name doesn't have hierarchy, restore it
-							if (!hiddenHierarchy.empty() && currentHierarchy != hiddenHierarchy) {
-								bool isFolded = IsDividerFolded(suites, layer);
-								std::string baseName = GetDividerName(currentName);
-								std::string restoredName = BuildDividerName(isFolded, hiddenHierarchy, baseName);
-								ERR(SetLayerNameStr(suites, layer, restoredName));
-							}
-						}
-					}
-				}
-			}
-		}
-	}
 	
 #ifdef AE_OS_WIN
 	// Update shared state
