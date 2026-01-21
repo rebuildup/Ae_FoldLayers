@@ -186,6 +186,64 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
     return *outStreamH ? A_Err_NONE : A_Err_GENERIC;
 }
 
+// Get hierarchy from hidden FD-H: group for rename recovery
+static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+{
+    if (!layerH) return "";
+
+    // Check layer type
+    AEGP_ObjectType layerType;
+    if (suites.LayerSuite9()->AEGP_GetLayerObjectType(layerH, &layerType) != A_Err_NONE || layerType != AEGP_ObjectType_VECTOR) {
+        return "";
+    }
+
+    AEGP_StreamRefH rootStreamH = NULL;
+    if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH) != A_Err_NONE) {
+        return "";
+    }
+
+    std::string hierarchy;
+    if (rootStreamH) {
+        AEGP_StreamRefH contentsStreamH = NULL;
+        if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
+            A_long numStreams = 0;
+            if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
+                for (A_long i = 0; i < numStreams && hierarchy.empty(); i++) {
+                    AEGP_StreamRefH childH = NULL;
+                    if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByIndex(S_my_id, contentsStreamH, i, &childH) == A_Err_NONE && childH) {
+                        AEGP_MemHandle nameH = NULL;
+                        if (suites.StreamSuite4()->AEGP_GetStreamName(S_my_id, childH, FALSE, &nameH) == A_Err_NONE && nameH) {
+                            void* dataP = NULL;
+                            if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
+                                const A_u_short* name16 = (const A_u_short*)dataP;
+                                // Check for "FD-H:" prefix (FD-H:xxx)
+                                if (name16[0] == 'F' && name16[1] == 'D' && name16[2] == '-' &&
+                                    name16[3] == 'H' && name16[4] == ':') {
+                                    // Extract hierarchy after "FD-H:"
+                                    std::string hierStr;
+                                    int j = 5; // Skip "FD-H:"
+                                    while (name16[j]) {
+                                        hierStr += (char)name16[j];
+                                        j++;
+                                    }
+                                    hierarchy = hierStr;
+                                }
+                                suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
+                            }
+                            suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
+                        }
+                        suites.StreamSuite4()->AEGP_DisposeStream(childH);
+                    }
+                }
+            }
+            suites.StreamSuite4()->AEGP_DisposeStream(contentsStreamH);
+        }
+        suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
+    }
+
+    return hierarchy;
+}
+
 // Check if layer has specific stream/group "FoldGroupData"
 static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
@@ -256,17 +314,18 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 }
 
 // Add identification group to layer
-static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+// If hierarchy is provided, stores it in a separate group "FD-H:xxx" for rename recovery
+static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& hierarchy = "")
 {
 	A_Err err = A_Err_NONE;
 	if (!layerH) return A_Err_STRUCT;
-    
+
     // Check layer type: only Vector layers have "ADBE Root Vectors Group"
     AEGP_ObjectType layerType;
     if (suites.LayerSuite9()->AEGP_GetLayerObjectType(layerH, &layerType) != A_Err_NONE || layerType != AEGP_ObjectType_VECTOR) {
         return A_Err_NONE;
     }
-	
+
 	AEGP_StreamRefH rootStreamH = NULL;
 	// Use DynamicStreamSuite to get layer root
 	err = suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefForLayer(S_my_id, layerH, &rootStreamH);
@@ -280,26 +339,81 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errBuf);
 		return err;
 	}
-	
+
 	if (!err && rootStreamH) {
         // Get Contents Group safely
         AEGP_StreamRefH contentsStreamH = NULL;
         err = suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH);
-        
+
         if (!err && contentsStreamH) {
+            // 1. Create/Update fold state group "FD-0" (Unfolded)
             AEGP_StreamRefH newGroupH = NULL;
-            // Add generic group "ADBE Vector Group"
             ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(S_my_id, contentsStreamH, "ADBE Vector Group", &newGroupH));
-            
+
             if (!err && newGroupH) {
                 // Rename it to "FD-0" (Unfolded) using UTF-16
                 A_UTF16Char name16[] = {'F','D','-','0', 0};
                 ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(newGroupH, name16));
-                
+
                 suites.StreamSuite4()->AEGP_DisposeStream(newGroupH);
             } else {
                 suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Failed to add stream to Contents");
             }
+
+            // 2. Create/Update hierarchy group "FD-H:xxx" for rename recovery
+            if (!hierarchy.empty()) {
+                AEGP_StreamRefH hierGroupH = NULL;
+                // First, try to find existing hierarchy group
+                A_long numStreams = 0;
+                if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
+                    bool foundHierGroup = false;
+                    for (A_long i = 0; i < numStreams && !foundHierGroup; i++) {
+                        AEGP_StreamRefH childH = NULL;
+                        if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByIndex(S_my_id, contentsStreamH, i, &childH) == A_Err_NONE && childH) {
+                            AEGP_MemHandle nameH = NULL;
+                            if (suites.StreamSuite4()->AEGP_GetStreamName(S_my_id, childH, FALSE, &nameH) == A_Err_NONE && nameH) {
+                                void* dataP = NULL;
+                                if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
+                                    const A_u_short* name16 = (const A_u_short*)dataP;
+                                    // Check for "FD-H:" prefix
+                                    if (name16[0] == 'F' && name16[1] == 'D' && name16[2] == '-' &&
+                                        name16[3] == 'H' && name16[4] == ':') {
+                                        // Found existing hierarchy group - update it
+                                        std::string newName = "FD-H:" + hierarchy;
+                                        std::vector<A_UTF16Char> newName16;
+                                        for (char c : newName) newName16.push_back(c);
+                                        newName16.push_back(0);
+                                        suites.DynamicStreamSuite4()->AEGP_SetStreamName(childH, newName16.data());
+                                        foundHierGroup = true;
+                                    }
+                                    suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
+                                }
+                                suites.MemorySuite1()->AEGP_FreeMemHandle(nameH);
+                            }
+                            if (!foundHierGroup) {
+                                suites.StreamSuite4()->AEGP_DisposeStream(childH);
+                            } else {
+                                suites.StreamSuite4()->AEGP_DisposeStream(childH);
+                            }
+                        }
+                    }
+                }
+
+                // If not found, create new hierarchy group
+                if (!foundHierGroup) {
+                    AEGP_StreamRefH newHierGroupH = NULL;
+                    ERR(suites.DynamicStreamSuite4()->AEGP_AddStream(S_my_id, contentsStreamH, "ADBE Vector Group", &newHierGroupH));
+                    if (!err && newHierGroupH) {
+                        std::string newName = "FD-H:" + hierarchy;
+                        std::vector<A_UTF16Char> newName16;
+                        for (char c : newName) newName16.push_back(c);
+                        newName16.push_back(0);
+                        ERR(suites.DynamicStreamSuite4()->AEGP_SetStreamName(newHierGroupH, newName16.data()));
+                        suites.StreamSuite4()->AEGP_DisposeStream(newHierGroupH);
+                    }
+                }
+            }
+
             suites.StreamSuite4()->AEGP_DisposeStream(contentsStreamH);
         } else {
              // If Contents not found, maybe report debug info?
@@ -311,10 +425,10 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 #endif
              suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errBuf);
         }
-		
+
 		suites.StreamSuite4()->AEGP_DisposeStream(rootStreamH);
 	}
-	
+
 	return err;
 }
 
@@ -625,21 +739,26 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 
 
 
-static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH, 
+static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
                          AEGP_LayerH dividerLayer, A_long dividerIndex, bool fold)
 {
 	A_Err err = A_Err_NONE;
-	
+
 	if (!dividerLayer || !compH) return A_Err_STRUCT;
 
     // Persist State
     ERR(SetGroupState(suites, dividerLayer, fold));
-	
+
 	std::string dividerName;
 	ERR(GetLayerNameStr(suites, dividerLayer, dividerName));
 	if (err) return err;
-	
-	std::string hierarchy = GetHierarchy(dividerName);
+
+	// Try to get hierarchy from hidden group first (for rename recovery)
+	std::string hierarchy = GetHierarchyFromHiddenGroup(suites, dividerLayer);
+	if (hierarchy.empty()) {
+		// Fallback to name-based hierarchy
+		hierarchy = GetHierarchy(dividerName);
+	}
 	std::string baseName = GetDividerName(dividerName);
 	std::string newName = BuildDividerName(fold, hierarchy, baseName);
 	ERR(SetLayerNameStr(suites, dividerLayer, newName));
@@ -949,9 +1068,9 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		
 		// Set label to 0 (None)
 		ERR(suites.LayerSuite9()->AEGP_SetLayerLabel(newLayer, 0));
-		
-		// Add identity group
-		ERR(AddDividerIdentity(suites, newLayer));
+
+		// Add identity group with hierarchy info
+		ERR(AddDividerIdentity(suites, newLayer, parentHierarchy));
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
@@ -1344,28 +1463,35 @@ static A_Err IdleHook(
 	// Default to not selected
 	bool dividerSelected = false;
 	IsDividerSelected(suites, compH, &dividerSelected);
-    
-    // Periodic Name Sync (Rename Resistance)
-    // Disabled to follow GM FoldLayers behavior: toggle prefix is applied only on action,
-    // allowing manual renaming without interference.
-    /*
-    if (S_idle_counter % 15 == 0) {
-        AEGP_Collection2H collectionH = NULL;
-        if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE) {
-            A_u_long num = 0;
-            suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &num);
-            for (A_u_long i=0; i<num; ++i) {
-                AEGP_CollectionItemV2 item;
-                if (suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item) == A_Err_NONE) {
-                     if (item.type == AEGP_CollectionItemType_LAYER) {
-                         SyncLayerName(suites, item.u.layer.layerH);
-                     }
-                }
-            }
-            suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-        }
-    }
-    */
+
+	// Periodic Hierarchy Recovery (Restore hierarchy info from hidden groups)
+	// Check every 30 idle ticks (~1.5 seconds) to detect renames and restore hierarchy
+	if (S_idle_counter % 30 == 0) {
+		A_long numLayers = 0;
+		if (suites.LayerSuite9()->AEGP_GetCompNumLayers(compH, &numLayers) == A_Err_NONE) {
+			for (A_long i = 0; i < numLayers; i++) {
+				AEGP_LayerH layer = NULL;
+				if (suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &layer) == A_Err_NONE && layer) {
+					// Only process layers with hidden divider identity
+					if (HasDividerIdentity(suites, layer)) {
+						std::string currentName;
+						if (GetLayerNameStr(suites, layer, currentName) == A_Err_NONE) {
+							std::string currentHierarchy = GetHierarchy(currentName);
+							std::string hiddenHierarchy = GetHierarchyFromHiddenGroup(suites, layer);
+
+							// If hidden hierarchy exists but current name doesn't have hierarchy, restore it
+							if (!hiddenHierarchy.empty() && currentHierarchy != hiddenHierarchy) {
+								bool isFolded = IsDividerFolded(suites, layer);
+								std::string baseName = GetDividerName(currentName);
+								std::string restoredName = BuildDividerName(isFolded, hiddenHierarchy, baseName);
+								ERR(SetLayerNameStr(suites, layer, restoredName));
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	
 #ifdef AE_OS_WIN
 	// Update shared state

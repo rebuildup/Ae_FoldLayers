@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(msbuild \"D:\\\\1_projects\\\\AfterEffects\\\\plugin\\\\SDK\\\\AEGP\\\\FoldLayers\\\\Win\\\\FoldLayers.sln\" /p:Configuration=Release /p:Platform=x64)",
+      "Bash(cmd /c \"\"\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\"\" && msbuild \"\"D:\\\\1_projects\\\\AfterEffects\\\\plugin\\\\SDK\\\\AEGP\\\\FoldLayers\\\\Win\\\\FoldLayers.sln\"\" /p:Configuration=Release /p:Platform=x64 2>&1\")",
+      "Bash(cmd /c \"\"\"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\Installer\\\\vswhere.exe\"\" -latest -property installationPath\")",
+      "Bash(cmd /c \"dir \"\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\"\" /B 2>&1\")",
+      "Bash(cmd /c \"where msbuild 2>&1\")"
+    ]
+  }
+}
