@@ -362,11 +362,11 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, c
 
             // 2. Create/Update hierarchy group "FD-H:xxx" for rename recovery
             if (!hierarchy.empty()) {
+                bool foundHierGroup = false;
                 AEGP_StreamRefH hierGroupH = NULL;
                 // First, try to find existing hierarchy group
                 A_long numStreams = 0;
                 if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
-                    bool foundHierGroup = false;
                     for (A_long i = 0; i < numStreams && !foundHierGroup; i++) {
                         AEGP_StreamRefH childH = NULL;
                         if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByIndex(S_my_id, contentsStreamH, i, &childH) == A_Err_NONE && childH) {
@@ -1451,7 +1451,8 @@ static A_Err IdleHook(
 	A_long				*max_sleepPL)
 {
 	S_idle_counter++;
-	
+	A_Err err = A_Err_NONE;
+
 	AEGP_SuiteHandler suites(sP);
 	
 	AEGP_CompH compH = NULL;
