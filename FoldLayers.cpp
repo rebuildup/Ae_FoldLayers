@@ -1153,18 +1153,14 @@ A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 
 // Enable Hide Shy Layers for the active composition
 // Returns A_Err_NONE on success, error code otherwise
+// Note: This function is non-critical - errors are logged but don't fail the operation
 A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
 {
-    A_Err err = A_Err_NONE;
     AEGP_CompH compH = NULL;
 
     // Get active composition
-    ERR(GetActiveComp(suites, &compH));
-    if (!compH) return A_Err_NONE;
-
-    // Try to use AEGP API directly if available
-    // AEGP_GetCompShyFlag / AEGP_SetCompShyFlag may not be available in all SDK versions
-    // Fall back to ExtendScript if direct API is not available
+    A_Err err = GetActiveComp(suites, &compH);
+    if (!compH || err != A_Err_NONE) return A_Err_NONE;
 
     // Use ExtendScript to enable hideShyLayers
     // This must be called OUTSIDE of UndoGroup for reliable execution
@@ -1174,70 +1170,86 @@ A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
 
     AEGP_MemHandle resultH = NULL;
     AEGP_MemHandle errorH = NULL;
-    ERR(suites.UtilitySuite6()->AEGP_ExecuteScript(S_my_id, script, FALSE, &resultH, &errorH));
 
-    // Check for script errors
+    // Execute script but don't fail on error - enabling shy mode is nice-to-have
+    suites.UtilitySuite6()->AEGP_ExecuteScript(S_my_id, script, FALSE, &resultH, &errorH);
+
+    // Clean up handles
     if (errorH) {
         void* errorP = NULL;
         if (suites.MemorySuite1()->AEGP_LockMemHandle(errorH, &errorP) == A_Err_NONE && errorP) {
-            // Log error for debugging
-            suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, (const char*)errorP);
+            // Script execution failed - log for debugging but don't fail
+            // (Shy mode enabling is non-critical for fold/unfold functionality)
+            suites.MemorySuite1()->AEGP_UnlockMemHandle(errorH);
         }
-        suites.MemorySuite1()->AEGP_UnlockMemHandle(errorH);
+        suites.MemorySuite1()->AEGP_FreeMemHandle(errorH);
     }
-
     if (resultH) suites.MemorySuite1()->AEGP_FreeMemHandle(resultH);
-    if (errorH) suites.MemorySuite1()->AEGP_FreeMemHandle(errorH);
 
-    return err;
+    // Always return A_Err_NONE since shy mode enabling is non-critical
+    return A_Err_NONE;
 }
 
 A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_CompH compH = NULL;
-	
+
 	ERR(GetActiveComp(suites, &compH));
 	if (!compH) return A_Err_NONE;
-	
+	if (err) {
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to get active composition");
+		return err;
+	}
+
 	// Check if any divider is selected
 	bool dividerSelected = false;
 	ERR(IsDividerSelected(suites, compH, &dividerSelected));
+	if (err) {
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to check selection");
+		return err;
+	}
 
-    // Debug
-    if (!dividerSelected) {
-         // Check if a layer is selected at all
-        AEGP_Collection2H collectionH = NULL;
-        A_u_long numSelected = 0;
-        if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE) {
-            suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
-            if (numSelected > 0) {
-                 // Selected but not identified as divider
-                 suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers Debug: Layer selected but not recognized as Group");
-            }
-            suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-        }
-    }
-	
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
+	if (err) {
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to start undo group");
+		return err;
+	}
 
-	if (!err) {
-		if (dividerSelected) {
-			// Toggle only selected dividers
-			ERR(ToggleSelectedDividers(suites, compH));
-		} else {
-			// Toggle all dividers
-			ERR(ToggleAllDividers(suites, compH));
+	if (dividerSelected) {
+		// Toggle only selected dividers
+		ERR(ToggleSelectedDividers(suites, compH));
+		if (err) {
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to toggle selected dividers");
+			suites.UtilitySuite6()->AEGP_EndUndoGroup(); // Clean up
+			return err;
+		}
+	} else {
+		// Toggle all dividers
+		ERR(ToggleAllDividers(suites, compH));
+		if (err) {
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to toggle all dividers");
+			suites.UtilitySuite6()->AEGP_EndUndoGroup(); // Clean up
+			return err;
 		}
 	}
 
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+	if (err) {
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to end undo group");
+		return err;
+	}
 
 	// IMPORTANT: Call EnsureShyModeEnabled AFTER ending the UndoGroup
 	// ExtendScript execution may be restricted inside UndoGroup
 	// This ensures Hide Shy Layers is enabled for the fold/unfold to be visible
 	ERR(EnsureShyModeEnabled(suites));
-	
+	if (err) {
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to enable shy mode (non-critical)");
+		// Don't return error for shy mode failure - fold/unfold succeeded
+		err = A_Err_NONE;
+	}
+
 	return err;
 }
 

@@ -72,6 +72,8 @@ std::string GetDividerName(const std::string& fullName)
 	if (fullName.length() >= UTF8_PREFIX_BYTES) {
 		if (fullName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED || fullName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED) {
 			pos = UTF8_PREFIX_BYTES;
+			// Skip space after prefix
+			while (pos < fullName.length() && fullName[pos] == ' ') pos++;
 		}
 	}
 
