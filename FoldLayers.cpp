@@ -477,24 +477,37 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, c
 }
 
 
+// Check if layer is a group divider
+// IMPORTANT: Checks FD- identity FIRST (reliable), then falls back to name-based check
+// This ensures only layers with FD- identity (created by this plugin) are recognized as groups
 static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
-	// First check legacy name-based (fast)
+	// First check FD- identity (reliable - only our plugin creates this)
+	if (!suites.StreamSuite4()) return false; // Safety check
+	if (HasDividerIdentity(suites, layerH)) return true;
+
+	// Fallback to legacy name-based check for backward compatibility
+	// This allows old groups created before FD- identity system to still work
 	std::string name;
 	if (GetLayerNameStr(suites, layerH, name) == A_Err_NONE) {
 		if (IsDividerNameFast(name)) return true;
 	}
-	
-	// If name check failed, check identity content
-	if (!suites.StreamSuite4()) return false; // Safety check
-	return HasDividerIdentity(suites, layerH);
+
+	return false;
 }
 
+// Variant for when we already have the layer name (optimization)
+// Still checks FD- identity FIRST for reliability
 static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
 {
-	if (IsDividerNameFast(name)) return true;
+	// First check FD- identity (reliable)
 	if (!suites.StreamSuite4()) return false;
-	return HasDividerIdentity(suites, layerH);
+	if (HasDividerIdentity(suites, layerH)) return true;
+
+	// Fallback to name-based check
+	if (IsDividerNameFast(name)) return true;
+
+	return false;
 }
 
 
