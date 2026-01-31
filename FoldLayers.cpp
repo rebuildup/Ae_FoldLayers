@@ -617,7 +617,7 @@ bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 // NOTE: Hierarchy is now stored in FD-H: group only, not in layer name
 // This function is kept for backward compatibility but always returns empty string
 // Use GetHierarchyFromHiddenGroup() instead for actual hierarchy retrieval
-static std::string GetHierarchy(const std::string& name)
+std::string GetHierarchy(const std::string& name)
 {
     // Hierarchy is stored in FD-H: group, not in layer name
     // Layer names only contain visual prefix (▸/▾) and base name
@@ -627,7 +627,7 @@ static std::string GetHierarchy(const std::string& name)
 
 // Get depth from hierarchy string with overflow protection
 // Returns depth or -1 on error (hierarchy too deep)
-static int GetHierarchyDepth(const std::string& hierarchy)
+int GetHierarchyDepth(const std::string& hierarchy)
 {
 	if (hierarchy.empty()) return 0;
 
@@ -649,7 +649,7 @@ static int GetHierarchyDepth(const std::string& hierarchy)
 
 // Get display name without prefix and hierarchy
 // Strips visual prefix (▸/▾) from layer name to get base name
-static std::string GetDividerName(const std::string& fullName)
+std::string GetDividerName(const std::string& fullName)
 {
     // Add length limit to prevent excessive processing
     const size_t MAX_LAYER_NAME_LENGTH = 4096;
@@ -1384,24 +1384,24 @@ A_Err ProcessDoubleClick()
 
 #ifdef AE_OS_MAC
 // Global mouse state tracking for higher frequency polling
-static bool S_pending_fold_action = false;
-static double S_last_left_down_event_ts = 0.0;
-static double S_last_click_event_ts = 0.0;
+bool S_pending_fold_action = false;
+double S_last_left_down_event_ts = 0.0;
+double S_last_click_event_ts = 0.0;
 
-static CFMachPortRef S_event_tap = NULL;
-static CFRunLoopSourceRef S_event_tap_source = NULL;
-static bool S_event_tap_active = false;
+CFMachPortRef S_event_tap = NULL;
+CFRunLoopSourceRef S_event_tap_source = NULL;
+bool S_event_tap_active = false;
 
-static pthread_mutex_t S_mac_state_mutex = PTHREAD_MUTEX_INITIALIZER;
-static bool S_mac_divider_selected_for_input = false;
-static std::string S_mac_selected_divider_full_name;
-static bool S_mac_selected_divider_valid = false;
-static double S_mac_selected_divider_cached_at = 0.0;
-static bool S_mac_should_warn_ax = false;
-static bool S_mac_warned_ax = false;
+pthread_mutex_t S_mac_state_mutex = PTHREAD_MUTEX_INITIALIZER;
+bool S_mac_divider_selected_for_input = false;
+std::string S_mac_selected_divider_full_name;
+bool S_mac_selected_divider_valid = false;
+double S_mac_selected_divider_cached_at = 0.0;
+bool S_mac_should_warn_ax = false;
+bool S_mac_warned_ax = false;
 // S_mac_ax_hit_test_usable is protected by S_mac_state_mutex to ensure thread safety.
 // This flag tracks whether Accessibility hit-testing is reliable in the current environment.
-static bool S_mac_ax_hit_test_usable = true;
+bool S_mac_ax_hit_test_usable = true;
 
 bool MacAXTrusted()
 {
@@ -1559,7 +1559,7 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 	return event;
 }
 
-static void InstallMacEventTap()
+void InstallMacEventTap()
 {
 	if (S_event_tap_active) return;
 	if (S_event_tap || S_event_tap_source) return;
@@ -1589,7 +1589,7 @@ static void InstallMacEventTap()
 	S_event_tap_active = true;
 }
 
-static void PollMouseState() {
+void PollMouseState() {
 	// If the event tap is active, it becomes the source of truth for double-click
 	// detection/suppression. The polling fallback is intentionally disabled to
 	// avoid triggering toggles from unrelated double-clicks elsewhere in AE UI.
