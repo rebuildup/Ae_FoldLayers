@@ -473,7 +473,7 @@ static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH l
 // State Management via Hidden Streams
 // ----------------------------------------------------------------------------
 
-static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded = NULL)
+static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded)
 {
     *outStreamH = NULL;
     if (outIsFolded) *outIsFolded = true; // Default to folded if found (legacy support)
