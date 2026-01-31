@@ -8,14 +8,49 @@
 #include "FoldUnfold.h"
 #include "FoldLayers.h"
 
-void EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
+// Enable Hide Shy Layers for the active composition
+// Returns A_Err_NONE on success, error code otherwise
+A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
 {
-	const char* script = "if (app.project.activeItem && app.project.activeItem instanceof CompItem) { if (!app.project.activeItem.hideShyLayers) { app.project.activeItem.hideShyLayers = true; } }";
+	A_Err err = A_Err_NONE;
+	AEGP_CompH compH = NULL;
+
+	// Get active composition
+	ERR(GetActiveComp(suites, &compH));
+	if (!compH) return A_Err_NONE;
+
+	// Use ExtendScript to enable hideShyLayers
+	// This must be called OUTSIDE of UndoGroup for reliable execution
+	const char* script =
+		"try {"
+		"    if (app.project.activeItem && app.project.activeItem instanceof CompItem) {"
+		"        var comp = app.project.activeItem;"
+		"        if (!comp.hideShyLayers) {"
+		"            comp.hideShyLayers = true;"
+		"        }"
+		"    }"
+		"} catch(e) {"
+		"    // Silently ignore errors"
+		"}";
+
 	AEGP_MemHandle resultH = NULL;
 	AEGP_MemHandle errorH = NULL;
-	suites.UtilitySuite6()->AEGP_ExecuteScript(S_my_id, script, FALSE, &resultH, &errorH);
+	ERR(suites.UtilitySuite6()->AEGP_ExecuteScript(S_my_id, script, FALSE, &resultH, &errorH));
+
+	// Check for script errors
+	if (errorH) {
+		void* errorP = NULL;
+		if (suites.MemorySuite1()->AEGP_LockMemHandle(errorH, &errorP) == A_Err_NONE && errorP) {
+			// Log error for debugging (optional, commented out)
+			// suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, (const char*)errorP);
+		}
+		suites.MemorySuite1()->AEGP_UnlockMemHandle(errorH);
+	}
+
 	if (resultH) suites.MemorySuite1()->AEGP_FreeMemHandle(resultH);
 	if (errorH) suites.MemorySuite1()->AEGP_FreeMemHandle(errorH);
+
+	return err;
 }
 
 static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
@@ -121,12 +156,14 @@ A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 			// Toggle all dividers
 			ERR(ToggleAllDividers(suites, compH));
 		}
-
-		// Ensure "Hide Shy Layers" is enabled in the composition
-		EnsureShyModeEnabled(suites);
 	}
 
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
+
+	// IMPORTANT: Call EnsureShyModeEnabled AFTER ending the UndoGroup
+	// ExtendScript execution may be restricted inside UndoGroup
+	// This ensures Hide Shy Layers is enabled for the fold/unfold to be visible
+	ERR(EnsureShyModeEnabled(suites));
 
 	return err;
 }

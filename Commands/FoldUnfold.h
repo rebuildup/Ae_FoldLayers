@@ -16,7 +16,8 @@
 #include <vector>
 
 // Ensure shy mode is enabled in composition
-void EnsureShyModeEnabled(AEGP_SuiteHandler& suites);
+// Returns A_Err_NONE on success, error code otherwise
+A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites);
 
 // Fold/unfold command handler
 A_Err DoFoldUnfold(AEGP_SuiteHandler& suites);

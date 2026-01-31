@@ -194,7 +194,8 @@ A_Err DoCreateDivider(AEGP_SuiteHandler& suites);
 A_Err DoFoldUnfold(AEGP_SuiteHandler& suites);
 
 // Ensure shy mode is enabled in composition
-void EnsureShyModeEnabled(AEGP_SuiteHandler& suites);
+// Returns A_Err_NONE on success, error code otherwise
+A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites);
 
 //=============================================================================
 // Platform-specific hooks
