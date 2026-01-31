@@ -1342,12 +1342,6 @@ A_Err ProcessDoubleClick()
 // Idle Hook - Process pending double-clicks
 //=============================================================================
 
-#ifdef AE_OS_MAC
-// macOS event handling is implemented in Platform/MacEventTap.cpp
-// Include the header to access the external declarations
-#include "Platform/MacEventTap.h"
-#endif
-
 static A_Err IdleHook(
 	AEGP_GlobalRefcon	plugin_refconPV,
 	AEGP_IdleRefcon		refconPV,
