@@ -1168,17 +1168,9 @@ A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
 
     // Use ExtendScript to enable hideShyLayers
     // This must be called OUTSIDE of UndoGroup for reliable execution
+    // Note: Script must be on a single line for AEGP_ExecuteScript on macOS
     const char* script =
-        "try {"
-        "    if (app.project.activeItem && app.project.activeItem instanceof CompItem) {"
-        "        var comp = app.project.activeItem;"
-        "        if (!comp.hideShyLayers) {"
-        "            comp.hideShyLayers = true;"
-        "        }"
-        "    }"
-        "} catch(e) {"
-        "    // Silently ignore errors"
-        "}";
+        "try { if (app.project.activeItem && app.project.activeItem instanceof CompItem) { var comp = app.project.activeItem; if (!comp.hideShyLayers) { comp.hideShyLayers = true; } } } catch(e) { }";
 
     AEGP_MemHandle resultH = NULL;
     AEGP_MemHandle errorH = NULL;
@@ -1188,8 +1180,8 @@ A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
     if (errorH) {
         void* errorP = NULL;
         if (suites.MemorySuite1()->AEGP_LockMemHandle(errorH, &errorP) == A_Err_NONE && errorP) {
-            // Log error for debugging (optional, commented out)
-            // suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, (const char*)errorP);
+            // Log error for debugging
+            suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, (const char*)errorP);
         }
         suites.MemorySuite1()->AEGP_UnlockMemHandle(errorH);
     }
