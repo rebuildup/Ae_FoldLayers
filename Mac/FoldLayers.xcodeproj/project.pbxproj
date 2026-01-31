@@ -13,6 +13,12 @@
 		D0FDF9BC09941656008E4F6B /* FoldLayers_PiPL.r in Resources */ = {isa = PBXBuildFile; fileRef = D0FDF9B909941656008E4F6B /* FoldLayers_PiPL.r */; };
 		D0FE579D0993C5E500139A60 /* AEGP_SuiteHandler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A60 /* AEGP_SuiteHandler.cpp */; };
 		D0FE579E0993C5E500139A60 /* MissingSuiteError.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579C0993C5E500139A60 /* MissingSuiteError.cpp */; };
+		D0FE579F0993C5E500139A61 /* CreateDivider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A61 /* CreateDivider.cpp */; };
+		D0FE57A00993C5E500139A62 /* FoldUnfold.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A62 /* FoldUnfold.cpp */; };
+		D0FE57A10993C5E500139A63 /* GroupBuilder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A63 /* GroupBuilder.cpp */; };
+		D0FE57A20993C5E500139A64 /* GroupParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A64 /* GroupParser.cpp */; };
+		D0FE57A30993C5E500139A65 /* MacEventTap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A65 /* MacEventTap.cpp */; };
+		D0FE57A40993C5E500139A66 /* StringConv.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A66 /* StringConv.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +32,18 @@
 		D0FE579A0993C5E500139A60 /* AEGP_SuiteHandler.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = AEGP_SuiteHandler.cpp; path = ../../../Util/AEGP_SuiteHandler.cpp; sourceTree = SOURCE_ROOT; };
 		D0FE579B0993C5E500139A60 /* AEGP_SuiteHandler.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = AEGP_SuiteHandler.h; path = ../../../Util/AEGP_SuiteHandler.h; sourceTree = SOURCE_ROOT; };
 		D0FE579C0993C5E500139A60 /* MissingSuiteError.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = MissingSuiteError.cpp; path = ../../../Util/MissingSuiteError.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE579A0993C5E500139A61 /* CreateDivider.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = CreateDivider.cpp; path = ../Commands/CreateDivider.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE579B0993C5E500139A62 /* CreateDivider.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = CreateDivider.h; path = ../Commands/CreateDivider.h; sourceTree = SOURCE_ROOT; };
+		D0FE579C0993C5E500139A63 /* FoldUnfold.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = FoldUnfold.cpp; path = ../Commands/FoldUnfold.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE579D0993C5E500139A64 /* FoldUnfold.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = FoldUnfold.h; path = ../Commands/FoldUnfold.h; sourceTree = SOURCE_ROOT; };
+		D0FE579E0993C5E500139A65 /* GroupBuilder.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = GroupBuilder.cpp; path = ../Hierarchy/GroupBuilder.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE579F0993C5E500139A66 /* GroupBuilder.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = GroupBuilder.h; path = ../Hierarchy/GroupBuilder.h; sourceTree = SOURCE_ROOT; };
+		D0FE57A00993C5E500139A67 /* GroupParser.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = GroupParser.cpp; path = ../Hierarchy/GroupParser.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE57A10993C5E500139A68 /* GroupParser.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = GroupParser.h; path = ../Hierarchy/GroupParser.h; sourceTree = SOURCE_ROOT; };
+		D0FE57A20993C5E500139A69 /* MacEventTap.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = MacEventTap.cpp; path = ../Platform/MacEventTap.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE57A30993C5E500139A70 /* MacEventTap.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = MacEventTap.h; path = ../Platform/MacEventTap.h; sourceTree = SOURCE_ROOT; };
+		D0FE57A40993C5E500139A71 /* StringConv.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = StringConv.cpp; path = ../Utils/StringConv.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE57A50993C5E500139A72 /* StringConv.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = StringConv.h; path = ../Utils/StringConv.h; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,6 +66,10 @@
 				D0FDF9B509941656008E4F6B /* FoldLayers_Strings.cpp */,
 				7EF3705516F29CB7002A3CB3 /* FoldLayers_Strings.h */,
 				D0FDF9B909941656008E4F6B /* FoldLayers_PiPL.r */,
+				D0FE57640993C4FD00139A60 /* Commands */,
+				D0FE57650993C4FD00139A61 /* Hierarchy */,
+				D0FE57660993C4FD00139A62 /* Platform */,
+				D0FE57670993C4FD00139A63 /* Utils */,
 				D0FE57630993C4FD00139A60 /* Supporting Code */,
 				7EF36FF916F29B62002A3CB3 /* Cocoa.framework */,
 				C4E6188C095A3C800012CA3F /* Products */,
@@ -71,6 +93,46 @@
 				D0FE579C0993C5E500139A60 /* MissingSuiteError.cpp */,
 			);
 			name = "Supporting Code";
+			sourceTree = "<group>";
+		};
+		D0FE57640993C4FD00139A60 /* Commands */ = {
+			isa = PBXGroup;
+			children = (
+				D0FE579A0993C5E500139A61 /* CreateDivider.cpp */,
+				D0FE579B0993C5E500139A62 /* CreateDivider.h */,
+				D0FE579C0993C5E500139A63 /* FoldUnfold.cpp */,
+				D0FE579D0993C5E500139A64 /* FoldUnfold.h */,
+			);
+			name = Commands;
+			sourceTree = "<group>";
+		};
+		D0FE57650993C4FD00139A61 /* Hierarchy */ = {
+			isa = PBXGroup;
+			children = (
+				D0FE579E0993C5E500139A65 /* GroupBuilder.cpp */,
+				D0FE579F0993C5E500139A66 /* GroupBuilder.h */,
+				D0FE57A00993C5E500139A67 /* GroupParser.cpp */,
+				D0FE57A10993C5E500139A68 /* GroupParser.h */,
+			);
+			name = Hierarchy;
+			sourceTree = "<group>";
+		};
+		D0FE57660993C4FD00139A62 /* Platform */ = {
+			isa = PBXGroup;
+			children = (
+				D0FE57A20993C5E500139A69 /* MacEventTap.cpp */,
+				D0FE57A30993C5E500139A70 /* MacEventTap.h */,
+			);
+			name = Platform;
+			sourceTree = "<group>";
+		};
+		D0FE57670993C4FD00139A63 /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				D0FE57A40993C5E500139A71 /* StringConv.cpp */,
+				D0FE57A50993C5E500139A72 /* StringConv.h */,
+			);
+			name = Utils;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -140,6 +202,12 @@
 				D0FE579E0993C5E500139A60 /* MissingSuiteError.cpp in Sources */,
 				D0FDF9BA09941656008E4F6B /* FoldLayers_Strings.cpp in Sources */,
 				D0FDF9BB09941656008E4F6B /* FoldLayers.cpp in Sources */,
+				D0FE579F0993C5E500139A61 /* CreateDivider.cpp in Sources */,
+				D0FE57A00993C5E500139A62 /* FoldUnfold.cpp in Sources */,
+				D0FE57A10993C5E500139A63 /* GroupBuilder.cpp in Sources */,
+				D0FE57A20993C5E500139A64 /* GroupParser.cpp in Sources */,
+				D0FE57A30993C5E500139A65 /* MacEventTap.cpp in Sources */,
+				D0FE57A40993C5E500139A66 /* StringConv.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

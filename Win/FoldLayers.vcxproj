@@ -369,6 +369,12 @@ cl /D "MSWindows" /EP $(IntDir)%(Filename).rrc &gt;               "$(ProjectDir)
     <ClCompile Include="..\..\..\Util\MissingSuiteError.cpp" />
     <ClCompile Include="..\FoldLayers.cpp" />
     <ClCompile Include="..\FoldLayers_Strings.cpp" />
+    <ClCompile Include="..\Commands\CreateDivider.cpp" />
+    <ClCompile Include="..\Commands\FoldUnfold.cpp" />
+    <ClCompile Include="..\Hierarchy\GroupBuilder.cpp" />
+    <ClCompile Include="..\Hierarchy\GroupParser.cpp" />
+    <ClCompile Include="..\Platform\WindowsHook.cpp" />
+    <ClCompile Include="..\Utils\StringConv.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
