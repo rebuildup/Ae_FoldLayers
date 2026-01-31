@@ -52,11 +52,11 @@
 #define GROUP_MARKER_END		")"
 #define GROUP_HIERARCHY_SEP		"/"
 
-// Unicode prefix characters (UTF-8) - kept for backward compatibility but NOT used
-// in pure ID-based mode. Fold state is stored only in FD-0/FD-1 hidden stream groups.
+// Unicode prefix characters (UTF-8) for visual fold state in layer names
+// Fold state is stored in FD-0/FD-1 hidden stream groups AND shown visually in layer name
 // ▸ (U+25B8) = folded, ▾ (U+25BE) = unfolded
-#define PREFIX_FOLDED			"\xE2\x96\xB8 "	// ▸ (small right-pointing triangle) - UNUSED in pure ID mode
-#define PREFIX_UNFOLDED			"\xE2\x96\xBE "	// ▾ (small down-pointing triangle) - UNUSED in pure ID mode
+#define PREFIX_FOLDED			"\xE2\x96\xB8 "	// ▸ (small right-pointing triangle) - folded state
+#define PREFIX_UNFOLDED			"\xE2\x96\xBE "	// ▾ (small down-pointing triangle) - unfolded state
 
 // UTF-8 encoding constants - kept for backward compatibility
 #define UTF8_PREFIX_BYTES		4				// Length of PREFIX_FOLDED/PREFIX_UNFOLDED in bytes

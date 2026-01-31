@@ -5,12 +5,12 @@
 /*      Developer: 361do_plugins                                   */
 /*      https://github.com/rebuildup                               */
 /*                                                                 */
-/*      Pure ID-based fold state management:                       */
-/*      - Layer names NEVER change - user's original name is kept  */
+/*      Hybrid fold state management:                              */
+/*      - Layer names show visual prefix (▸ folded, ▾ unfolded)    */
 /*      - Fold state stored in hidden stream groups: FD-0 (unfolded)*/
 /*        and FD-1 (folded)                                        */
 /*      - Hierarchy stored in FD-H: group for nesting             */
-/*      - No ▸/▾ prefixes in layer names                           */
+/*      - Visual prefixes update on fold/unfold operations         */
 /*                                                                 */
 /*******************************************************************/
 
@@ -142,21 +142,24 @@ static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, cons
 	return err;
 }
 
-// Build divider name - pure ID-based, no prefix in layer name
-// Fold state is stored only in FD-0/FD-1 hidden stream groups
+// Build divider name with visual prefix for fold state
+// Fold state: ▸ (folded), ▾ (unfolded)
+// Hierarchy is stored in FD-H: group only (NOT in layer name)
 static std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
 {
-	// Pure ID-based: no prefix, just return the name
-	// Fold state is in FD-0/FD-1 only, hierarchy is in FD-H:
-	(void)folded;  // Unused - state is in FD-0/FD-1 only
-	(void)hierarchy;  // Unused - hierarchy is in FD-H: only
+	(void)hierarchy;  // Hierarchy is in FD-H: only, not in layer name
+
+	// Add visual prefix for fold state
+	std::string result = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
+	result += " ";
+	result += name;
 
 	// Add length limit to prevent excessive string growth
 	const size_t MAX_NAME_LENGTH = 1024;
-	if (name.length() > MAX_NAME_LENGTH) {
-		return name.substr(0, MAX_NAME_LENGTH) + "...";
+	if (result.length() > MAX_NAME_LENGTH) {
+		return result.substr(0, MAX_NAME_LENGTH) + "...";
 	}
-	return name;
+	return result;
 }
 
 
@@ -573,11 +576,27 @@ static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool s
 
 static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
-    // Pure ID-based: no longer syncs name prefix with fold state
-    // Layer names should never change - fold state is in FD-0/FD-1 only
-    (void)suites;
-    (void)layerH;
-    return A_Err_NONE;
+    // Sync layer name with current fold state from FD-0/FD-1
+    // This function can be used to recover visual prefix if layer name was manually edited
+    A_Err err = A_Err_NONE;
+
+    // Get current fold state from hidden stream
+    AEGP_StreamRefH dataH = NULL;
+    bool isFolded = true;
+    if (GetFoldGroupDataStream(suites, layerH, &dataH, &isFolded) == A_Err_NONE && dataH) {
+        suites.StreamSuite4()->AEGP_DisposeStream(dataH);
+
+        // Get current name and strip existing prefix
+        std::string currentName;
+        ERR(GetLayerNameStr(suites, layerH, currentName));
+        if (!err) {
+            std::string baseName = GetDividerName(currentName);
+            std::string newName = BuildDividerName(isFolded, "", baseName);
+            ERR(SetLayerNameStr(suites, layerH, newName));
+        }
+    }
+
+    return err;
 }
 
 static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
@@ -593,14 +612,14 @@ static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
     return true;
 }
 
-// Parse hierarchy from name - pure ID-based version
-// No longer extracts hierarchy from layer name (it's in FD-H: group only)
+// Parse hierarchy from name
+// NOTE: Hierarchy is now stored in FD-H: group only, not in layer name
 // This function is kept for backward compatibility but always returns empty string
 // Use GetHierarchyFromHiddenGroup() instead for actual hierarchy retrieval
 static std::string GetHierarchy(const std::string& name)
 {
-    // Pure ID-based: hierarchy is stored in FD-H: group, not in layer name
-    // This function is kept for compatibility but returns empty string
+    // Hierarchy is stored in FD-H: group, not in layer name
+    // Layer names only contain visual prefix (▸/▾) and base name
     (void)name;
     return "";
 }
@@ -627,17 +646,29 @@ static int GetHierarchyDepth(const std::string& hierarchy)
 	return depth;
 }
 
-// Get display name without prefix and hierarchy - pure ID-based version
-// No longer strips prefix/hierarchy from layer name (they don't exist in names)
-// Returns the name as-is since layer names never contain prefixes in pure ID mode
+// Get display name without prefix and hierarchy
+// Strips visual prefix (▸/▾) from layer name to get base name
 static std::string GetDividerName(const std::string& fullName)
 {
-    // Pure ID-based: layer names don't have prefixes, return as-is
     // Add length limit to prevent excessive processing
     const size_t MAX_LAYER_NAME_LENGTH = 4096;
     if (fullName.length() > MAX_LAYER_NAME_LENGTH) {
         return "Group"; // Return safe default for invalid input
     }
+
+    // Check for UTF-8 prefix (▸ = \xE2\x96\xB8, ▾ = \xE2\x96\xBE)
+    if (fullName.length() >= 4) {
+        // Check if starts with UTF-8 fold state prefix
+        if ((unsigned char)fullName[0] == 0xE2 &&
+            (unsigned char)fullName[1] == 0x96 &&
+            ((unsigned char)fullName[2] == 0xB8 || (unsigned char)fullName[2] == 0xBE) &&
+            fullName[3] == ' ') {
+            // Skip the prefix and space, return the rest
+            return fullName.substr(4);
+        }
+    }
+
+    // No prefix found, return as-is
     return fullName;
 }
 
@@ -717,8 +748,8 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 
 
 
-// Fold/unfold a divider - pure ID-based version
-// No longer modifies layer names - only uses FD-0/FD-1 for state
+// Fold/unfold a divider
+// Updates FD-0/FD-1 hidden stream AND layer name with visual prefix (▸/▾)
 static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
                          AEGP_LayerH dividerLayer, A_long dividerIndex, bool fold)
 {
@@ -741,6 +772,14 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to set fold state - operation cancelled.");
 		return stateErr;
 	}
+
+	// Update layer name to show visual fold state (▸ for folded, ▾ for unfolded)
+	std::string currentName;
+	ERR(GetLayerNameStr(suites, dividerLayer, currentName));
+	std::string baseName = GetDividerName(currentName); // Strip existing prefix if any
+	std::string originalName = currentName; // Store for rollback
+	std::string newName = BuildDividerName(fold, "", baseName); // No hierarchy in name
+	ERR(SetLayerNameStr(suites, dividerLayer, newName));
 
 	// Get group layers
 	std::vector<AEGP_LayerH> groupLayers;
@@ -829,8 +868,9 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 				suites.LayerSuite9()->AEGP_SetLayerFlag(modifiedLayers[i], AEGP_LayerFlag_SHY, originalShyStates[i]);
 			}
 		}
-		// Rollback state (no name to rollback in pure ID mode)
+		// Rollback state and layer name
 		SetGroupState(suites, dividerLayer, !fold);
+		SetLayerNameStr(suites, dividerLayer, originalName); // Restore original name
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Error during fold/unfold - all changes rolled back.");
 	}
 
@@ -1119,9 +1159,9 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
 
 	if (!err && newLayer) {
-		// Set layer name without prefix (pure ID-based)
-		// Use "Group" as default name, user can rename it
-		std::string dividerName = "Group";
+		// Set layer name with prefix to show unfolded state (▾ Group)
+		// New groups are always created in unfolded state
+		std::string dividerName = BuildDividerName(false, "", "Group");
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
 		if (err) {
 			suites.UtilitySuite6()->AEGP_EndUndoGroup();
