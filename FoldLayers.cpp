@@ -65,7 +65,7 @@ A_long			S_idle_counter			= 0;
 // Layer Name Utilities (Forward Declarations / Moved Implementation)
 //=============================================================================
 
-static A_Err GetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std::string& name)
+A_Err GetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std::string& name)
 {
 	A_Err err = A_Err_NONE;
 	
@@ -110,7 +110,7 @@ static A_Err GetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std:
 	return err;
 }
 
-static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
+A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
 {
 	A_Err err = A_Err_NONE;
 	
@@ -145,7 +145,7 @@ static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, cons
 // Build divider name with visual prefix for fold state
 // Fold state: ▸ (folded), ▾ (unfolded)
 // Hierarchy is stored in FD-H: group only (NOT in layer name)
-static std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
+std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
 {
 	(void)hierarchy;  // Hierarchy is in FD-H: only, not in layer name
 
@@ -167,7 +167,7 @@ static std::string BuildDividerName(bool folded, const std::string& hierarchy, c
 // Helper to find child by match name
 // Note: Do NOT use this for Layer Root (Named Group), use AEGP_GetNewStreamRefByMatchname directly instead.
 // This is safe for Contents/Vector Groups where custom streams might exist.
-static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH parentH, const char* matchName, AEGP_StreamRefH* outStreamH)
+A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH parentH, const char* matchName, AEGP_StreamRefH* outStreamH)
 {
     *outStreamH = NULL;
     A_long count = 0;
@@ -193,7 +193,7 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
 
 // Get hierarchy from hidden FD-H: group for rename recovery
 // CRITICAL FIX: Added bounds checking to prevent infinite loops and buffer overflows
-static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
     if (!layerH) return "";
 
@@ -261,7 +261,7 @@ static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_L
 }
 
 // Check if layer has specific stream/group "FoldGroupData"
-static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	if (!layerH) return false;
     
@@ -331,7 +331,7 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 
 // Add identification group to layer
 // If hierarchy is provided, stores it in a separate group "FD-H:xxx" for rename recovery
-static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& hierarchy = "")
+A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& hierarchy = "")
 {
 	A_Err err = A_Err_NONE;
 	if (!layerH) return A_Err_STRUCT;
@@ -452,7 +452,7 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, c
 // Check if layer is a group divider
 // Only layers with FD- identity (hidden stream groups) are recognized as groups
 // This ensures only layers created by this plugin can be folded/unfolded
-static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	if (!suites.StreamSuite4()) return false; // Safety check
 	return HasDividerIdentity(suites, layerH);
@@ -461,7 +461,7 @@ static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 // Variant for when we already have the layer name (optimization)
 // Name parameter is ignored - only FD- identity matters
 // This signature is kept for compatibility with existing code
-static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
+bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
 {
 	(void)name; // Unused parameter - only FD- identity matters
 	if (!suites.StreamSuite4()) return false;
@@ -534,7 +534,7 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
     return *outStreamH ? A_Err_NONE : A_Err_GENERIC;
 }
 
-static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool setFolded)
+A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool setFolded)
 {
     A_Err err = A_Err_NONE;
     AEGP_StreamRefH groupDataH = NULL;
@@ -574,7 +574,7 @@ static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool s
     return err;
 }
 
-static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
     // Sync layer name with current fold state from FD-0/FD-1
     // This function can be used to recover visual prefix if layer name was manually edited
@@ -599,7 +599,7 @@ static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
     return err;
 }
 
-static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
     // Pure ID-based: only check FD-0/FD-1 state, no name fallback
     AEGP_StreamRefH dataH = NULL;
