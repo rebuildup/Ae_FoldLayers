@@ -1389,6 +1389,19 @@ static A_Err IdleHook(
 	S_mac_divider_selected_for_input = dividerSelected;
 	pthread_mutex_unlock(&S_mac_state_mutex);
 
+	// Debug: Log selection state changes
+	static A_long s_last_selected_count = 0;
+	static A_long s_log_counter = 0;
+	if ((s_log_counter++ % 60) == 0) {
+		fprintf(stderr, "[FoldLayers] IdleHook: dividerSelected=%d\n", dividerSelected);
+	}
+	if (dividerSelected && s_last_selected_count == 0) {
+		fprintf(stderr, "[FoldLayers] Divider SELECTION state changed to: SELECTED\n");
+	} else if (!dividerSelected && s_last_selected_count > 0) {
+		fprintf(stderr, "[FoldLayers] Divider SELECTION state changed to: DESELECTED\n");
+	}
+	s_last_selected_count = dividerSelected ? 1 : 0;
+
 	if (dividerSelected) {
 		AEGP_Collection2H collectionH = NULL;
 		A_u_long numSelected = 0;
@@ -1406,6 +1419,7 @@ static A_Err IdleHook(
 						S_mac_selected_divider_valid = true;
 						S_mac_selected_divider_cached_at = CFAbsoluteTimeGetCurrent();
 						pthread_mutex_unlock(&S_mac_state_mutex);
+						fprintf(stderr, "[FoldLayers] Cached divider name: %s\n", name.c_str());
 					}
 				}
 			}
@@ -1422,14 +1436,17 @@ static A_Err IdleHook(
 
 	// Process pending fold action from double-click
 	if (S_pending_fold_action) {
+		fprintf(stderr, "[FoldLayers] PENDING FOLD ACTION detected! dividerSelected=%d\n", dividerSelected);
 		S_pending_fold_action = false;
 
 		if (dividerSelected) {
 			const bool axTrusted = MacAXTrusted();
+			fprintf(stderr, "[FoldLayers] AX trusted: %d\n", axTrusted);
 			// CRITICAL FIX: Read S_mac_ax_hit_test_usable with mutex protection
 			pthread_mutex_lock(&S_mac_state_mutex);
 			const bool axHitTestUsable = S_mac_ax_hit_test_usable;
 			pthread_mutex_unlock(&S_mac_state_mutex);
+			fprintf(stderr, "[FoldLayers] AX hit test usable: %d\n", axHitTestUsable);
 
 			if (axTrusted && axHitTestUsable) {
 				// Final gate: only toggle when the double-click happened on the selected divider row.
@@ -1437,15 +1454,22 @@ static A_Err IdleHook(
 				if (ev) {
 					const CGPoint loc = CGEventGetLocation(ev);
 					CFRelease(ev);
+					fprintf(stderr, "[FoldLayers] Performing hit test at (%.1f, %.1f)\n", loc.x, loc.y);
 					if (MacHitTestLooksLikeSelectedDivider(loc)) {
+						fprintf(stderr, "[FoldLayers] Hit test PASSED! Calling DoFoldUnfold()\n");
 						DoFoldUnfold(suites);
+					} else {
+						fprintf(stderr, "[FoldLayers] Hit test FAILED - not folding\n");
 					}
 				}
 			} else {
 				// No Accessibility permission OR hit-test is unusable: allow selection-based toggle.
+				fprintf(stderr, "[FoldLayers] Selection-based toggle (no AX or hit-test unusable)\n");
 				DoFoldUnfold(suites);
 			}
-        }
+        } else {
+			fprintf(stderr, "[FoldLayers] No divider selected, ignoring fold action\n");
+		}
     }
 
 	// One-time guidance if we're running without Accessibility trust.
@@ -1459,8 +1483,8 @@ static A_Err IdleHook(
 			"FoldLayers: For accurate double-click hit-testing on Mac, enable After Effects in System Settings > Privacy & Security > Accessibility. (Without it, FoldLayers falls back to selection-only behavior.)");
 	}
 #endif
-	
-	*max_sleepPL = 50; 
+
+	*max_sleepPL = 50;
 	return A_Err_NONE;
 }
 

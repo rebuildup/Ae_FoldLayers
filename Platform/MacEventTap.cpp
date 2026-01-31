@@ -12,6 +12,16 @@
 #include "FoldLayers.h"
 #include <pthread.h>
 #include <unistd.h>
+#include <stdio.h>
+
+// Enable debug logging (set to 0 to disable in production)
+#define FOLDLAYERS_DEBUG_MAC 1
+
+#if FOLDLAYERS_DEBUG_MAC
+#define DEBUG_LOG(fmt, ...) fprintf(stderr, "[FoldLayers] " fmt "\n", ##__VA_ARGS__)
+#else
+#define DEBUG_LOG(fmt, ...) do {} while(0)
+#endif
 
 // Global variables
 bool				S_pending_fold_action = false;
@@ -30,6 +40,8 @@ double				S_mac_selected_divider_cached_at = 0.0;
 bool				S_mac_should_warn_ax = false;
 bool				S_mac_warned_ax = false;
 bool				S_mac_ax_hit_test_usable = true;
+static bool			S_ax_trusted = false;
+static bool			S_ax_trusted_checked = false;
 
 static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullName)
 {
@@ -43,7 +55,39 @@ static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullNa
 
 bool MacAXTrusted()
 {
-	return AXIsProcessTrusted() ? true : false;
+	if (!S_ax_trusted_checked) {
+		S_ax_trusted = AXIsProcessTrusted() ? true : false;
+		S_ax_trusted_checked = true;
+
+		// Prompt user for Accessibility permissions if not trusted
+		if (!S_ax_trusted) {
+			DEBUG_LOG("Accessibility NOT trusted - prompting user...");
+
+			// Use AXIsProcessTrustedWithOptions to show system prompt
+			CFStringRef promptKey = kAXTrustedCheckOptionPrompt;
+			CFBooleanRef promptValue = kCFBooleanTrue;
+			CFTypeRef keys[] = { promptKey };
+			CFTypeRef values[] = { promptValue };
+
+			CFDictionaryRef options = CFDictionaryCreate(
+				NULL,
+				(const void **)keys,
+				(const void **)values,
+				1,
+				&kCFCopyStringDictionaryKeyCallBacks,
+				&kCFTypeDictionaryValueCallBacks
+			);
+
+			if (options) {
+				S_ax_trusted = AXIsProcessTrustedWithOptions(options);
+				CFRelease(options);
+				DEBUG_LOG("After prompt - trusted: %d", S_ax_trusted);
+			}
+		} else {
+			DEBUG_LOG("Accessibility IS trusted");
+		}
+	}
+	return S_ax_trusted;
 }
 
 bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
@@ -119,6 +163,7 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 	if (!event) return event;
 
 	if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+		DEBUG_LOG("EventTap was disabled, re-enabling...");
 		if (S_event_tap) {
 			CGEventTapEnable(S_event_tap, true);
 		}
@@ -133,18 +178,25 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 		const double cachedAt = S_mac_selected_divider_cached_at;
 		pthread_mutex_unlock(&S_mac_state_mutex);
 
+		DEBUG_LOG("EventTap: LeftMouseDown clickState=%lld selected=%d cachedValid=%d",
+			clickState, selected, cachedValid);
+
 		// Only act on true double-click.
 		if (clickState == 2 && (selected || cachedValid)) {
 			// If cache is very stale, don't risk false positives.
 			if (cachedAt > 0.0) {
 				const double now = CFAbsoluteTimeGetCurrent();
 				const double age = now - cachedAt;
-				if (age < 0.0 || age > 2.0) return event;
+				if (age < 0.0 || age > 2.0) {
+					DEBUG_LOG("EventTap: Cache too stale (%.2fs), ignoring", age);
+					return event;
+				}
 			}
 
 			const CGPoint loc = CGEventGetLocation(event);
 			const bool axTrusted = MacAXTrusted();
 			if (!axTrusted) {
+				DEBUG_LOG("EventTap: AX not trusted, allowing selection-based fold");
 				pthread_mutex_lock(&S_mac_state_mutex);
 				S_mac_should_warn_ax = true;
 				pthread_mutex_unlock(&S_mac_state_mutex);
@@ -153,9 +205,13 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 				return NULL;
 			}
 
+			DEBUG_LOG("EventTap: AX trusted, performing hit test at (%.1f, %.1f)", loc.x, loc.y);
 			if (!S_mac_ax_hit_test_usable || MacHitTestLooksLikeSelectedDivider(loc)) {
+				DEBUG_LOG("EventTap: Hit test passed! Setting pending fold action");
 				S_pending_fold_action = true;
 				return NULL;
+			} else {
+				DEBUG_LOG("EventTap: Hit test FAILED, not folding");
 			}
 		}
 	}
@@ -165,8 +221,23 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 
 void InstallMacEventTap()
 {
-	if (S_event_tap_active) return;
-	if (S_event_tap || S_event_tap_source) return;
+	if (S_event_tap_active) {
+		DEBUG_LOG("EventTap already active");
+		return;
+	}
+	if (S_event_tap || S_event_tap_source) {
+		DEBUG_LOG("EventTap already created");
+		return;
+	}
+
+	DEBUG_LOG("Attempting to install EventTap...");
+
+	// Check Accessibility permissions first
+	const bool axTrusted = MacAXTrusted();
+	if (!axTrusted) {
+		DEBUG_LOG("Cannot install EventTap - Accessibility not trusted");
+		return;
+	}
 
 	CGEventMask mask = CGEventMaskBit(kCGEventLeftMouseDown);
 	S_event_tap = CGEventTapCreate(
@@ -178,11 +249,15 @@ void InstallMacEventTap()
 		NULL);
 
 	if (!S_event_tap) {
+		DEBUG_LOG("EventTap creation FAILED - polling fallback will be used");
 		return;
 	}
 
+	DEBUG_LOG("EventTap created successfully");
+
 	S_event_tap_source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, S_event_tap, 0);
 	if (!S_event_tap_source) {
+		DEBUG_LOG("Failed to create run loop source for EventTap");
 		CFRelease(S_event_tap);
 		S_event_tap = NULL;
 		return;
@@ -191,11 +266,8 @@ void InstallMacEventTap()
 	CFRunLoopAddSource(CFRunLoopGetCurrent(), S_event_tap_source, kCFRunLoopCommonModes);
 	CGEventTapEnable(S_event_tap, true);
 	S_event_tap_active = true;
+	DEBUG_LOG("EventTap installed and enabled");
 }
-
-// Global state for polling fallback
-static bool S_last_mouse_down = false;
-static double S_last_click_time = 0.0;
 
 void PollMouseState()
 {
@@ -218,14 +290,25 @@ void PollMouseState()
 	// Use button state detection to catch clicks even while button is held down
 	const bool isDown = CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft);
 
+#if FOLDLAYERS_DEBUG_MAC
+	static int pollCount = 0;
+	if ((pollCount++ % 60) == 0) {
+		DEBUG_LOG("PollMouseState: isDown=%d, last_down=%d, selected=%d",
+			isDown, S_last_mouse_down, dividerSelected);
+	}
+#endif
+
 	if (isDown && !S_last_mouse_down) {
 		// Transition from up to down - new click detected
 		const double now = CFAbsoluteTimeGetCurrent();
 		const double diff = now - S_last_click_time;
 		S_last_click_time = now;
 
+		DEBUG_LOG("CLICK DETECTED: diff=%.3f seconds", diff);
+
 		// Double click threshold (0.05s to 0.5s)
 		if (diff > 0.05 && diff < 0.5) {
+			DEBUG_LOG("DOUBLE-CLICK DETECTED! Setting pending fold action");
 			S_pending_fold_action = true;
 			S_last_click_time = 0.0; // Prevent consecutive triggering
 		}
