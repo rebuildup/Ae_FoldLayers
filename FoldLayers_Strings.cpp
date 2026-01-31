@@ -13,7 +13,7 @@ static TableString g_strs[StrID_NUMTYPES] = {
 	{StrID_NONE,					""},
 	
 	// Menu items
-	{StrID_Menu_CreateDivider,		"Create Group Divider"},
+	{StrID_Menu_CreateDivider,		"Create Group Layer"},
 	{StrID_Menu_ToggleFold,			"Fold/Unfold Groups"},
 	
 	// Status messages

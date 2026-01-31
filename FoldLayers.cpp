@@ -1152,7 +1152,7 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		collectionH = NULL;
 	}
 	
-	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
+	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Layer"));
 
 	// Create SHAPE layer
 	AEGP_LayerH newLayer = NULL;
@@ -1850,7 +1850,7 @@ extern "C" DllExport A_Err EntryPointFunc(
 	if (!err) {
 		ERR(suites.CommandSuite1()->AEGP_InsertMenuCommand(
 			S_cmd_create_divider,
-			"Create Group Divider",
+			"Create Group Layer",
 			AEGP_Menu_LAYER,
 			AEGP_MENU_INSERT_SORTED));
 		

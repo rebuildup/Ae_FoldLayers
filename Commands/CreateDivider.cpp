@@ -154,7 +154,7 @@ A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		collectionH = NULL;
 	}
 
-	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
+	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Layer"));
 
 	// Create SHAPE layer
 	AEGP_LayerH newLayer = NULL;
