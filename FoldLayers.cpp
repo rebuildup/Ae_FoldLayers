@@ -1403,7 +1403,7 @@ static bool S_mac_warned_ax = false;
 // This flag tracks whether Accessibility hit-testing is reliable in the current environment.
 static bool S_mac_ax_hit_test_usable = true;
 
-static bool MacAXTrusted()
+bool MacAXTrusted()
 {
 	// Do not cache permanently: users often toggle Accessibility permissions
 	// while AE is running, and we must reflect that immediately.
@@ -1420,7 +1420,7 @@ static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullNa
 	return false;
 }
 
-static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
+bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 {
 	// Best-effort: If we can use Accessibility to find the UI element under the
 	// mouse, only allow the toggle when that element appears to reference the
