@@ -32,25 +32,25 @@
 #endif
 
 // Global variables
-static AEGP_PluginID	S_my_id				= 0;
-static SPBasicSuite		*sP					= NULL;
+AEGP_PluginID		S_my_id				= 0;
+SPBasicSuite		*sP					= NULL;
 
 // Menu command IDs
-static AEGP_Command		S_cmd_create_divider	= 0;
-static AEGP_Command		S_cmd_fold_unfold		= 0;
+AEGP_Command		S_cmd_create_divider	= 0;
+AEGP_Command		S_cmd_fold_unfold		= 0;
 
 #ifdef AE_OS_WIN
 // Windows: Mouse hook for double-click detection
-static HHOOK			S_mouse_hook			= NULL;
-static bool				S_double_click_pending	= false;
-static bool				S_suppress_next_action	= false;
-static CRITICAL_SECTION	S_cs;
-static bool				S_cs_initialized		= false;
-static bool				S_is_divider_selected	= false; // Track selection state for hook
+HHOOK			S_mouse_hook			= NULL;
+bool			S_double_click_pending	= false;
+bool			S_suppress_next_action	= false;
+CRITICAL_SECTION	S_cs;
+bool			S_cs_initialized		= false;
+bool			S_is_divider_selected	= false; // Track selection state for hook
 #endif
 
 // Idle hook state
-static A_long			S_idle_counter			= 0;
+A_long			S_idle_counter			= 0;
 
 //=============================================================================
 // Helper Functions
@@ -167,7 +167,7 @@ static std::string BuildDividerName(bool folded, const std::string& hierarchy, c
 // Helper to find child by match name
 // Note: Do NOT use this for Layer Root (Named Group), use AEGP_GetNewStreamRefByMatchname directly instead.
 // This is safe for Contents/Vector Groups where custom streams might exist.
-static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH parentH, const char* matchName, AEGP_StreamRefH* outStreamH)
+A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH parentH, const char* matchName, AEGP_StreamRefH* outStreamH)
 {
     *outStreamH = NULL;
     A_long count = 0;
@@ -193,7 +193,7 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
 
 // Get hierarchy from hidden FD-H: group for rename recovery
 // CRITICAL FIX: Added bounds checking to prevent infinite loops and buffer overflows
-static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
     if (!layerH) return "";
 
@@ -261,7 +261,7 @@ static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_L
 }
 
 // Check if layer has specific stream/group "FoldGroupData"
-static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	if (!layerH) return false;
     
@@ -331,7 +331,7 @@ static bool HasDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 
 // Add identification group to layer
 // If hierarchy is provided, stores it in a separate group "FD-H:xxx" for rename recovery
-static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& hierarchy = "")
+A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& hierarchy)
 {
 	A_Err err = A_Err_NONE;
 	if (!layerH) return A_Err_STRUCT;
@@ -452,7 +452,7 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, c
 // Check if layer is a group divider
 // Only layers with FD- identity (hidden stream groups) are recognized as groups
 // This ensures only layers created by this plugin can be folded/unfolded
-static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
 	if (!suites.StreamSuite4()) return false; // Safety check
 	return HasDividerIdentity(suites, layerH);
@@ -461,7 +461,7 @@ static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 // Variant for when we already have the layer name (optimization)
 // Name parameter is ignored - only FD- identity matters
 // This signature is kept for compatibility with existing code
-static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
+bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
 {
 	(void)name; // Unused parameter - only FD- identity matters
 	if (!suites.StreamSuite4()) return false;
@@ -473,7 +473,7 @@ static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH l
 // State Management via Hidden Streams
 // ----------------------------------------------------------------------------
 
-static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded)
+A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded)
 {
     *outStreamH = NULL;
     if (outIsFolded) *outIsFolded = true; // Default to folded if found (legacy support)
@@ -534,7 +534,7 @@ static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layer
     return *outStreamH ? A_Err_NONE : A_Err_GENERIC;
 }
 
-static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool setFolded)
+A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool setFolded)
 {
     A_Err err = A_Err_NONE;
     AEGP_StreamRefH groupDataH = NULL;
@@ -574,7 +574,7 @@ static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool s
     return err;
 }
 
-static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
     // Sync layer name with current fold state from FD-0/FD-1
     // This function can be used to recover visual prefix if layer name was manually edited
@@ -599,7 +599,7 @@ static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
     return err;
 }
 
-static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
+bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
     // Pure ID-based: only check FD-0/FD-1 state, no name fallback
     AEGP_StreamRefH dataH = NULL;
@@ -678,7 +678,7 @@ static std::string GetDividerName(const std::string& fullName)
 // Core Functionality
 //=============================================================================
 
-static A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
+A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_ItemH itemH = NULL;
@@ -701,9 +701,9 @@ static A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
 // Get layers that belong to this divider's group
 // Considers hierarchy - stops at same or higher level divider
 // Pure ID-based: uses FD-H: group for hierarchy information
-static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
-                            A_long dividerIndex, const std::string& dividerHierarchy,
-                            std::vector<AEGP_LayerH>& groupLayers)
+A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+                    A_long dividerIndex, const std::string& dividerHierarchy,
+                    std::vector<AEGP_LayerH>& groupLayers)
 {
 	A_Err err = A_Err_NONE;
 	A_long numLayers = 0;
@@ -750,8 +750,8 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 
 // Fold/unfold a divider
 // Updates FD-0/FD-1 hidden stream AND layer name with visual prefix (▸/▾)
-static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
-                         AEGP_LayerH dividerLayer, A_long dividerIndex, bool fold)
+A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+               AEGP_LayerH dividerLayer, A_long dividerIndex, bool fold)
 {
 	A_Err err = A_Err_NONE;
 
@@ -879,8 +879,8 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 }
 
 // Toggle a single divider
-static A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH, 
-                           AEGP_LayerH layerH, A_long layerIndex)
+A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+                   AEGP_LayerH layerH, A_long layerIndex)
 {
 	A_Err err = A_Err_NONE;
 	
@@ -893,8 +893,8 @@ static A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 }
 
 // Get all dividers in the composition
-static A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
-                            std::vector<std::pair<AEGP_LayerH, A_long> >& dividers)
+A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+                    std::vector<std::pair<AEGP_LayerH, A_long> >& dividers)
 {
 	A_Err err = A_Err_NONE;
 	A_long numLayers = 0;
@@ -913,7 +913,7 @@ static A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 }
 
 // Check if any divider is selected
-static A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool* result)
+A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool* result)
 {
 	A_Err err = A_Err_NONE;
 	*result = false;
@@ -942,7 +942,7 @@ static A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool
 }
 
 // Toggle selected dividers only
-static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
+A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 {
 	A_Err err = A_Err_NONE;
 
@@ -976,7 +976,7 @@ static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 }
 
 // Toggle all dividers - unfold priority, fold if all unfolded
-static A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
+A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 {
 	A_Err err = A_Err_NONE;
 	
@@ -1011,7 +1011,7 @@ static A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 // Command Handlers
 //=============================================================================
 
-static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
+A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_CompH compH = NULL;
@@ -1207,7 +1207,7 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 
 // Enable Hide Shy Layers for the active composition
 // Returns A_Err_NONE on success, error code otherwise
-static A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
+A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
 {
     A_Err err = A_Err_NONE;
     AEGP_CompH compH = NULL;
@@ -1254,7 +1254,7 @@ static A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
     return err;
 }
 
-static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
+A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_CompH compH = NULL;
@@ -1310,7 +1310,7 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 #ifdef AE_OS_WIN
 
 // Forward declaration
-static A_Err ProcessDoubleClick();
+A_Err ProcessDoubleClick();
 
 static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
@@ -1332,7 +1332,7 @@ static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 	return CallNextHookEx(S_mouse_hook, nCode, wParam, lParam);
 }
 
-static A_Err ProcessDoubleClick()
+A_Err ProcessDoubleClick()
 {
 	A_Err err = A_Err_NONE;
 
