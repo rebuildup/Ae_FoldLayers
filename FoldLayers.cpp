@@ -88,7 +88,10 @@ static A_Err GetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std:
 		ERR(suites.MemorySuite1()->AEGP_LockMemHandle(nameH, (void**)&nameP));
 		if (!err && nameP) {
 			std::string result;
-			while (*nameP) {
+			// FIX: Add safety limit to prevent infinite loops on corrupted UTF-16 data
+			const int MAX_UTF16_CHARS = 1024;  // Reasonable limit for layer names
+			int charCount = 0;
+			while (*nameP && charCount < MAX_UTF16_CHARS) {
 				if (*nameP < 0x80) {
 					result += (char)*nameP;
 				} else if (*nameP < 0x800) {
@@ -100,6 +103,7 @@ static A_Err GetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, std:
 					result += (char)(0x80 | (*nameP & 0x3F));
 				}
 				nameP++;
+				charCount++;
 			}
 			name = result;
 			suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
@@ -992,21 +996,43 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 				ERR(GetLayerNameStr(suites, item.u.layer.layerH, selName));
 				if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
 					std::string selHierarchy = GetHierarchy(selName);
+
+					// Check if parent hierarchy is already too deep
+					int selDepth = GetHierarchyDepth(selHierarchy);
+					if (selDepth < 0) {
+						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Cannot nest group - maximum hierarchy depth exceeded.");
+						suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+						return A_Err_NONE;
+					}
+
+					// Check if creating a new child would exceed MAX_HIERARCHY_DEPTH
+					if (selDepth >= MAX_HIERARCHY_DEPTH) {
+						char msg[256];
+#ifdef AE_OS_WIN
+						sprintf_s(msg, sizeof(msg), "FoldLayers: Maximum nesting depth (%d) reached. Cannot create nested group.", MAX_HIERARCHY_DEPTH);
+#else
+						snprintf(msg, sizeof(msg), "FoldLayers: Maximum nesting depth (%d) reached. Cannot create nested group.", MAX_HIERARCHY_DEPTH);
+#endif
+						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
+						suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+						return A_Err_NONE;
+					}
+
 					// Find next available sub-level
 					// Count existing children at this level
 					std::vector<std::pair<AEGP_LayerH, A_long> > allDividers;
 					ERR(GetAllDividers(suites, compH, allDividers));
-					
+
 					int childCount = 0;
 					std::string prefix = selHierarchy.empty() ? "" : selHierarchy + "/";
-					
+
 					for (auto& div : allDividers) {
 						std::string divName;
 						ERR(GetLayerNameStr(suites, div.first, divName));
 						if (!err) {
 							std::string divHier = GetHierarchy(divName);
 							// Check if it's a direct child
-							if (!prefix.empty() && divHier.substr(0, prefix.length()) == prefix) {
+							if (!prefix.empty() && divHier.length() >= prefix.length() && divHier.substr(0, prefix.length()) == prefix) {
 								// Count only direct children (no additional /)
 								std::string remainder = divHier.substr(prefix.length());
 								if (remainder.find('/') == std::string::npos) {
@@ -1017,23 +1043,59 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 							}
 						}
 					}
-					
-					// Build new hierarchy
+
+					// Build new hierarchy with overflow checks
 					childCount++;  // Next number
 					if (selHierarchy.empty()) {
+						// Check for integer overflow
+						if (childCount > 999) {
+							suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Too many groups at this level.");
+							suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+							return A_Err_NONE;
+						}
 						parentHierarchy = std::to_string(childCount);
 					} else {
 						// Use letters for deeper nesting: 1, 1/A, 1/A/a, 1/A/a/i...
 						int depth = GetHierarchyDepth(selHierarchy);
+						if (depth < 0) {
+							suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Invalid hierarchy depth detected.");
+							suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+							return A_Err_NONE;
+						}
+
 						char nextChar;
 						if (depth == 0) {
+							// Numeric level (0-9)
+							if (childCount > 9) {
+								suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Too many groups at this level (max 9).");
+								suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+								return A_Err_NONE;
+							}
 							nextChar = '0' + childCount;
 						} else if (depth == 1) {
+							// Uppercase letters (A-Z)
+							if (childCount > 26) {
+								suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Too many groups at this level (max 26).");
+								suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+								return A_Err_NONE;
+							}
 							nextChar = 'A' + (childCount - 1);
 						} else if (depth == 2) {
+							// Lowercase letters (a-z)
+							if (childCount > 26) {
+								suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Too many groups at this level (max 26).");
+								suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+								return A_Err_NONE;
+							}
 							nextChar = 'a' + (childCount - 1);
 						} else {
-							nextChar = 'i' + (childCount - 1);  // i, ii, iii style approximation
+							// i, ii, iii style approximation (limited to 20)
+							if (childCount > 20) {
+								suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Too many groups at this level (max 20).");
+								suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
+								return A_Err_NONE;
+							}
+							nextChar = 'i' + (childCount - 1);
 						}
 						parentHierarchy = selHierarchy + "/" + nextChar;
 					}
@@ -1232,6 +1294,8 @@ static bool S_mac_selected_divider_valid = false;
 static double S_mac_selected_divider_cached_at = 0.0;
 static bool S_mac_should_warn_ax = false;
 static bool S_mac_warned_ax = false;
+// S_mac_ax_hit_test_usable is protected by S_mac_state_mutex to ensure thread safety.
+// This flag tracks whether Accessibility hit-testing is reliable in the current environment.
 static bool S_mac_ax_hit_test_usable = true;
 
 static bool MacAXTrusted()
@@ -1282,10 +1346,14 @@ static bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
 	if (axErr != kAXErrorSuccess || !hit) {
 		// Even when trusted, some environments return errors. Mark as unusable so
 		// we can fall back to selection-only behavior instead of "never toggling".
+		pthread_mutex_lock(&S_mac_state_mutex);
 		S_mac_ax_hit_test_usable = false;
+		pthread_mutex_unlock(&S_mac_state_mutex);
 		return false;
 	}
+	pthread_mutex_lock(&S_mac_state_mutex);
 	S_mac_ax_hit_test_usable = true;
+	pthread_mutex_unlock(&S_mac_state_mutex);
 
 	CFTypeRef titleV = NULL;
 	if (AXUIElementCopyAttributeValue(hit, kAXTitleAttribute, &titleV) == kAXErrorSuccess && titleV) {
@@ -1368,7 +1436,12 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 
 			// If hit-testing isn't usable, fall back to selection-only behavior so
 			// the feature still works (but may toggle from elsewhere).
-			if (!S_mac_ax_hit_test_usable || MacHitTestLooksLikeSelectedDivider(loc)) {
+			// CRITICAL FIX: Read S_mac_ax_hit_test_usable with mutex protection
+			pthread_mutex_lock(&S_mac_state_mutex);
+			const bool axHitTestUsable = S_mac_ax_hit_test_usable;
+			pthread_mutex_unlock(&S_mac_state_mutex);
+
+			if (!axHitTestUsable || MacHitTestLooksLikeSelectedDivider(loc)) {
 			// Suppress AE's default double-click handling (and its "beep"),
 			// and route the action to our fold/unfold logic.
 			S_pending_fold_action = true;
@@ -1522,7 +1595,12 @@ static A_Err IdleHook(
         S_pending_fold_action = false;
 		if (dividerSelected) {
 			const bool axTrusted = MacAXTrusted();
-			if (axTrusted && S_mac_ax_hit_test_usable) {
+			// CRITICAL FIX: Read S_mac_ax_hit_test_usable with mutex protection
+			pthread_mutex_lock(&S_mac_state_mutex);
+			const bool axHitTestUsable = S_mac_ax_hit_test_usable;
+			pthread_mutex_unlock(&S_mac_state_mutex);
+
+			if (axTrusted && axHitTestUsable) {
 				// Final gate: only toggle when the double-click happened on the selected divider row.
 				CGEventRef ev = CGEventCreate(NULL);
 				if (ev) {
