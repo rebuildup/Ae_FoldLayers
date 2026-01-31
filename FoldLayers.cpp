@@ -41,12 +41,13 @@ AEGP_Command		S_cmd_fold_unfold		= 0;
 
 #ifdef AE_OS_WIN
 // Windows: Mouse hook for double-click detection
-static HHOOK			S_mouse_hook			= NULL;
-static bool				S_double_click_pending	= false;
-static bool				S_suppress_next_action	= false;
-static CRITICAL_SECTION	S_cs;
-static bool				S_cs_initialized		= false;
-static bool				S_is_divider_selected	= false; // Track selection state for hook
+// Variables are extern in WindowsHook.cpp, so must have external linkage here
+HHOOK			S_mouse_hook			= NULL;
+bool				S_double_click_pending	= false;
+bool				S_suppress_next_action	= false;
+CRITICAL_SECTION	S_cs;
+bool				S_cs_initialized		= false;
+bool				S_is_divider_selected	= false; // Track selection state for hook
 #endif
 
 // Idle hook state
