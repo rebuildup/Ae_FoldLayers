@@ -19,6 +19,7 @@ extern CRITICAL_SECTION	S_cs;
 extern bool				S_cs_initialized;
 extern bool				S_is_divider_selected;
 
+// MouseProc - handles double-click detection for Windows
 static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
 	if (nCode >= 0 && wParam == WM_LBUTTONDBLCLK) {
@@ -39,50 +40,7 @@ static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 	return CallNextHookEx(S_mouse_hook, nCode, wParam, lParam);
 }
 
-A_Err ProcessDoubleClick()
-{
-	A_Err err = A_Err_NONE;
-
-	AEGP_SuiteHandler suites(sP);
-
-	AEGP_CompH compH = NULL;
-	ERR(GetActiveComp(suites, &compH));
-
-	if (!err && compH) {
-		AEGP_Collection2H collectionH = NULL;
-		A_u_long numSelected = 0;
-
-		ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
-		if (!err && collectionH) {
-			ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-
-			if (!err && numSelected == 1) {
-				AEGP_CollectionItemV2 item;
-				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
-
-				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-					std::string name;
-					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-
-					if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
-						// Divider is selected and double-clicked - toggle!
-						A_long idx = 0;
-						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
-						if (!err) {
-							ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Fold/Unfold"));
-							ERR(ToggleDivider(suites, compH, item.u.layer.layerH, idx));
-							ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
-						}
-					}
-				}
-			}
-
-			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-		}
-	}
-
-	return err;
-}
+// ProcessDoubleClick implementation is in FoldLayers.cpp
 
 void InitWindowsHook()
 {
