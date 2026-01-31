@@ -195,7 +195,21 @@ void InstallMacEventTap()
 
 void PollMouseState()
 {
-	if (S_event_tap_active) return;
+	// Check if a divider is currently selected
+	pthread_mutex_lock(&S_mac_state_mutex);
+	const bool dividerSelected = S_mac_divider_selected_for_input;
+	pthread_mutex_unlock(&S_mac_state_mutex);
+
+	if (!dividerSelected) {
+		return;  // No divider selected, skip double-click detection
+	}
+
+	// CRITICAL: Do NOT check S_event_tap_active here.
+	// Even when the event tap is active, it may fail to suppress events
+	// (e.g., due to permissions issues or macOS changes). The polling
+	// fallback ensures double-click detection still works in those cases.
+	// The event tap callback sets S_last_click_event_ts = 0.0 to prevent
+	// double-triggering when both mechanisms are active.
 
 	const double now = CFAbsoluteTimeGetCurrent();
 	const double since = CGEventSourceSecondsSinceLastEventType(

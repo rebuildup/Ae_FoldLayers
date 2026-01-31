@@ -11,11 +11,13 @@
 #define MAC_EVENT_TAP_H
 
 #include "AEConfig.h"
+#include <string>
 
 #ifdef AE_OS_MAC
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <ApplicationServices/ApplicationServices.h>
+#include <pthread.h>
 
 // Global variables for macOS event handling
 extern bool				S_pending_fold_action;
