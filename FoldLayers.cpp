@@ -473,7 +473,7 @@ static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH l
 // State Management via Hidden Streams
 // ----------------------------------------------------------------------------
 
-static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded = NULL)
+static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded)
 {
     *outStreamH = NULL;
     if (outIsFolded) *outIsFolded = true; // Default to folded if found (legacy support)
@@ -799,8 +799,9 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	for (size_t i = 0; i < groupLayers.size(); i++) {
 		AEGP_LayerH subLayer = groupLayers[i];
 		if (subLayer) {
-			A_Boolean shyFlag = FALSE;
-			if (suites.LayerSuite9()->AEGP_GetLayerFlag(subLayer, AEGP_LayerFlag_SHY, &shyFlag) == A_Err_NONE) {
+			AEGP_LayerFlags flags;
+			if (suites.LayerSuite9()->AEGP_GetLayerFlags(subLayer, &flags) == A_Err_NONE) {
+				A_Boolean shyFlag = (flags & AEGP_LayerFlag_SHY) != 0;
 				modifiedLayers.push_back(subLayer);
 				originalShyStates.push_back(shyFlag);
 			}
@@ -1181,8 +1182,8 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 
 		// CRITICAL FIX: After reorder operation, verify handle is still valid
 		// by attempting a basic operation. If it fails, we need to report an error.
-		A_Boolean videoActive = FALSE;
-		A_Err verifyErr = suites.LayerSuite9()->AEGP_GetLayerFlag(newLayer, AEGP_LayerFlag_VIDEO_ACTIVE, &videoActive);
+		AEGP_LayerFlags flags;
+		A_Err verifyErr = suites.LayerSuite9()->AEGP_GetLayerFlags(newLayer, &flags);
 		if (verifyErr) {
 			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Layer handle became invalid after reorder - operation failed.");
 			suites.UtilitySuite6()->AEGP_EndUndoGroup();

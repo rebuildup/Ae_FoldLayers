@@ -15,6 +15,7 @@
 #ifdef AE_OS_WIN
 
 #include <windows.h>
+#include "AE_GeneralPlug.h"
 
 // Initialize Windows mouse hook for double-click detection
 void InitWindowsHook();
