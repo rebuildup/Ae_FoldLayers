@@ -1561,6 +1561,19 @@ void PollMouseState() {
 	const bool dividerSelected = S_mac_divider_selected_for_input;
 	pthread_mutex_unlock(&S_mac_state_mutex);
 
+	// DEBUG: Report event tap status and selection (remove after fixing)
+	static int debugCounter = 0;
+	AEGP_SuiteHandler suites(sP);
+	if ((debugCounter++ % 100) == 0) {
+		pthread_mutex_lock(&S_mac_state_mutex);
+		const bool eventTapActive = S_event_tap_active;
+		pthread_mutex_unlock(&S_mac_state_mutex);
+		char debugBuf[256];
+		snprintf(debugBuf, sizeof(debugBuf), "FoldLayers Debug: eventTap=%d, dividerSelected=%d",
+				 (int)eventTapActive, (int)dividerSelected);
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, debugBuf);
+	}
+
 	if (!dividerSelected) {
 		return;  // No divider selected, skip double-click detection
 	}
@@ -1588,6 +1601,8 @@ void PollMouseState() {
 		if (diff > 0.05 && diff < 0.5) {
 			S_pending_fold_action = true;
 			S_last_click_event_ts = 0.0; // prevent rapid multi-trigger (e.g., triple-click)
+			// DEBUG: Report double-click detection (remove after fixing)
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Polling detected double-click");
 		}
 	}
 }
@@ -1676,6 +1691,9 @@ static A_Err IdleHook(
     // Process pending fold action from double-click
     if (S_pending_fold_action) {
         S_pending_fold_action = false;
+        // DEBUG: Report that we detected a double-click (remove after fixing)
+        suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Double-click detected");
+
 		if (dividerSelected) {
 			const bool axTrusted = MacAXTrusted();
 			// CRITICAL FIX: Read S_mac_ax_hit_test_usable with mutex protection
