@@ -474,7 +474,7 @@ bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, 
 // State Management via Hidden Streams
 // ----------------------------------------------------------------------------
 
-static A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded)
+A_Err GetFoldGroupDataStream(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, AEGP_StreamRefH* outStreamH, bool* outIsFolded)
 {
     *outStreamH = NULL;
     if (outIsFolded) *outIsFolded = true; // Default to folded if found (legacy support)
@@ -679,7 +679,7 @@ static std::string GetDividerName(const std::string& fullName)
 // Core Functionality
 //=============================================================================
 
-static A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
+A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_ItemH itemH = NULL;
@@ -702,7 +702,7 @@ static A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
 // Get layers that belong to this divider's group
 // Considers hierarchy - stops at same or higher level divider
 // Pure ID-based: uses FD-H: group for hierarchy information
-static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
                             A_long dividerIndex, const std::string& dividerHierarchy,
                             std::vector<AEGP_LayerH>& groupLayers)
 {
@@ -751,7 +751,7 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 
 // Fold/unfold a divider
 // Updates FD-0/FD-1 hidden stream AND layer name with visual prefix (▸/▾)
-static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
                          AEGP_LayerH dividerLayer, A_long dividerIndex, bool fold)
 {
 	A_Err err = A_Err_NONE;
@@ -880,7 +880,7 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 }
 
 // Toggle a single divider
-static A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH, 
+A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH, 
                            AEGP_LayerH layerH, A_long layerIndex)
 {
 	A_Err err = A_Err_NONE;
@@ -894,7 +894,7 @@ static A_Err ToggleDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 }
 
 // Get all dividers in the composition
-static A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
+A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
                             std::vector<std::pair<AEGP_LayerH, A_long> >& dividers)
 {
 	A_Err err = A_Err_NONE;
@@ -914,7 +914,7 @@ static A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 }
 
 // Check if any divider is selected
-static A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool* result)
+A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool* result)
 {
 	A_Err err = A_Err_NONE;
 	*result = false;
@@ -943,7 +943,7 @@ static A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool
 }
 
 // Toggle selected dividers only
-static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
+A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 {
 	A_Err err = A_Err_NONE;
 
@@ -977,7 +977,7 @@ static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 }
 
 // Toggle all dividers - unfold priority, fold if all unfolded
-static A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
+A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 {
 	A_Err err = A_Err_NONE;
 	
@@ -1012,7 +1012,7 @@ static A_Err ToggleAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 // Command Handlers
 //=============================================================================
 
-static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
+A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_CompH compH = NULL;
@@ -1209,7 +1209,7 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 
 // Enable Hide Shy Layers for the active composition
 // Returns A_Err_NONE on success, error code otherwise
-static A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
+A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
 {
     A_Err err = A_Err_NONE;
     AEGP_CompH compH = NULL;
@@ -1256,7 +1256,7 @@ static A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
     return err;
 }
 
-static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
+A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 {
 	A_Err err = A_Err_NONE;
 	AEGP_CompH compH = NULL;
@@ -1312,7 +1312,7 @@ static A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 #ifdef AE_OS_WIN
 
 // Forward declaration
-static A_Err ProcessDoubleClick();
+A_Err ProcessDoubleClick();
 
 static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
@@ -1334,7 +1334,7 @@ static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 	return CallNextHookEx(S_mouse_hook, nCode, wParam, lParam);
 }
 
-static A_Err ProcessDoubleClick()
+A_Err ProcessDoubleClick()
 {
 	A_Err err = A_Err_NONE;
 
