@@ -145,14 +145,19 @@ A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::
 
 // Build divider name with visual prefix for fold state
 // Fold state: ▸ (folded), ▾ (unfolded)
-// Hierarchy is stored in FD-H: group only (NOT in layer name)
+// Format: ▾(hierarchy) name or ▾ name for top level
 std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
 {
-	(void)hierarchy;  // Hierarchy is in FD-H: only, not in layer name
-
 	// Add visual prefix for fold state
 	std::string result = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
-	result += " ";
+
+	// Add hierarchy marker if present (e.g., "▾(1/A) Group")
+	if (!hierarchy.empty()) {
+		result += "(" + hierarchy + ") ";
+	} else {
+		result += " ";
+	}
+
 	result += name;
 
 	// Add length limit to prevent excessive string growth
@@ -723,7 +728,7 @@ A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	ERR(GetLayerNameStr(suites, dividerLayer, currentName));
 	std::string baseName = GetDividerName(currentName); // Strip existing prefix if any
 	std::string originalName = currentName; // Store for rollback
-	std::string newName = BuildDividerName(fold, "", baseName); // No hierarchy in name
+	std::string newName = BuildDividerName(fold, hierarchy, baseName); // Include hierarchy in name
 	ERR(SetLayerNameStr(suites, dividerLayer, newName));
 
 	// Get group layers
@@ -1105,9 +1110,10 @@ A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
 
 	if (!err && newLayer) {
-		// Set layer name with prefix to show unfolded state (▾ Group)
+		// Set layer name with prefix to show unfolded state and hierarchy
 		// New groups are always created in unfolded state
-		std::string dividerName = BuildDividerName(false, "", "Group");
+		// Include parent hierarchy if present (e.g., "▾(1/A) Group" for nested groups)
+		std::string dividerName = BuildDividerName(false, parentHierarchy, "Group");
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
 		if (err) {
 			suites.UtilitySuite6()->AEGP_EndUndoGroup();
@@ -1148,46 +1154,51 @@ A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
 
+	// Enable shy mode after creating group (outside UndoGroup for reliable script execution)
+	ERR(EnsureShyModeEnabled(suites));
+
 	return err;
 }
 
 // Enable Hide Shy Layers for the active composition
-// Returns A_Err_NONE on success, error code otherwise
-// Note: This function is non-critical - errors are logged but don't fail the operation
+// Uses AEGP_DynamicStreamSuite if available, otherwise falls back to ExtendScript
 A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites)
 {
     AEGP_CompH compH = NULL;
-
-    // Get active composition
     A_Err err = GetActiveComp(suites, &compH);
-    if (!compH || err != A_Err_NONE) return A_Err_NONE;
+    if (!compH || err != A_Err_NONE) return err;
+
+    // Try to get comp settings stream to check/set hideShyLayers directly
+    // Note: This approach may not be available in all SDK versions
+    // Fall back to ExtendScript which is more universally available
 
     // Use ExtendScript to enable hideShyLayers
     // This must be called OUTSIDE of UndoGroup for reliable execution
     // Note: Script must be on a single line for AEGP_ExecuteScript on macOS
     const char* script =
-        "try { if (app.project.activeItem && app.project.activeItem instanceof CompItem) { var comp = app.project.activeItem; if (!comp.hideShyLayers) { comp.hideShyLayers = true; } } } catch(e) { }";
+        "try { if (app.project.activeItem && app.project.activeItem instanceof CompItem) { var comp = app.project.activeItem; if (!comp.hideShyLayers) { comp.hideShyLayers = true; } } } catch(e) { e.toString(); }";
 
     AEGP_MemHandle resultH = NULL;
     AEGP_MemHandle errorH = NULL;
 
-    // Execute script but don't fail on error - enabling shy mode is nice-to-have
-    suites.UtilitySuite6()->AEGP_ExecuteScript(S_my_id, script, FALSE, &resultH, &errorH);
+    err = suites.UtilitySuite6()->AEGP_ExecuteScript(S_my_id, script, FALSE, &resultH, &errorH);
 
-    // Clean up handles
+    // Report any script errors for debugging
     if (errorH) {
         void* errorP = NULL;
         if (suites.MemorySuite1()->AEGP_LockMemHandle(errorH, &errorP) == A_Err_NONE && errorP) {
-            // Script execution failed - log for debugging but don't fail
-            // (Shy mode enabling is non-critical for fold/unfold functionality)
+            const char* errorStr = (const char*)errorP;
+            if (errorStr && *errorStr) {
+                suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, errorStr);
+            }
             suites.MemorySuite1()->AEGP_UnlockMemHandle(errorH);
         }
         suites.MemorySuite1()->AEGP_FreeMemHandle(errorH);
     }
+
     if (resultH) suites.MemorySuite1()->AEGP_FreeMemHandle(resultH);
 
-    // Always return A_Err_NONE since shy mode enabling is non-critical
-    return A_Err_NONE;
+    return err;
 }
 
 A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
@@ -1243,11 +1254,11 @@ A_Err DoFoldUnfold(AEGP_SuiteHandler& suites)
 	// IMPORTANT: Call EnsureShyModeEnabled AFTER ending the UndoGroup
 	// ExtendScript execution may be restricted inside UndoGroup
 	// This ensures Hide Shy Layers is enabled for the fold/unfold to be visible
-	ERR(EnsureShyModeEnabled(suites));
-	if (err) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to enable shy mode (non-critical)");
-		// Don't return error for shy mode failure - fold/unfold succeeded
-		err = A_Err_NONE;
+	// Note: Shy mode enabling is critical for fold/unfold to be visible to users
+	A_Err shyErr = EnsureShyModeEnabled(suites);
+	if (shyErr) {
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Warning - Could not enable Hide Shy Layers mode. Please enable it manually in the composition panel.");
+		// Still return success for fold/unfold operation, but warn the user
 	}
 
 	return err;
@@ -1522,6 +1533,8 @@ void InstallMacEventTap()
 		NULL);
 
 	if (!S_event_tap) {
+		// Event tap creation failed - likely due to missing Accessibility permissions
+		// Polling fallback will be used instead
 		return;
 	}
 
@@ -1542,6 +1555,16 @@ void PollMouseState() {
 	// detection/suppression. The polling fallback is intentionally disabled to
 	// avoid triggering toggles from unrelated double-clicks elsewhere in AE UI.
 	if (S_event_tap_active) return;
+
+	// CRITICAL: Only trigger on double-click when a divider is selected
+	// Check if a divider is currently selected before processing mouse events
+	pthread_mutex_lock(&S_mac_state_mutex);
+	const bool dividerSelected = S_mac_divider_selected_for_input;
+	pthread_mutex_unlock(&S_mac_state_mutex);
+
+	if (!dividerSelected) {
+		return;  // No divider selected, skip double-click detection
+	}
 
 	// Polling-based approach: use the timestamp of the most recent left-mouse-down
 	// event, derived from "seconds since last event". This avoids missing clicks
