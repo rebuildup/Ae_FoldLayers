@@ -17,8 +17,8 @@
 		D0FE57A00993C5E500139A62 /* FoldUnfold.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579C0993C5E500139A63 /* FoldUnfold.cpp */; };
 		D0FE57A10993C5E500139A63 /* GroupBuilder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579E0993C5E500139A65 /* GroupBuilder.cpp */; };
 		D0FE57A20993C5E500139A64 /* GroupParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE57A00993C5E500139A67 /* GroupParser.cpp */; };
-		D0FE57A30993C5E500139A65 /* MacEventTap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE57A20993C9E500139A69 /* MacEventTap.cpp */; };
-		D0FE57A40993C5E500139A66 /* StringConv.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE57A40993C5E500139A71 /* StringConv.cpp */; };
+		D0FE57A60993C9E500139A73 /* MacEventTap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE57A40993C9E500139A69 /* MacEventTap.cpp */; };
+		D0FE57A40993C5E500139A66 /* StringConv.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE57A50993C9E500139A71 /* StringConv.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,10 +40,10 @@
 		D0FE579F0993C5E500139A66 /* GroupBuilder.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = GroupBuilder.h; path = ../Hierarchy/GroupBuilder.h; sourceTree = SOURCE_ROOT; };
 		D0FE57A00993C5E500139A67 /* GroupParser.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = GroupParser.cpp; path = ../Hierarchy/GroupParser.cpp; sourceTree = SOURCE_ROOT; };
 		D0FE57A10993C5E500139A68 /* GroupParser.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = GroupParser.h; path = ../Hierarchy/GroupParser.h; sourceTree = SOURCE_ROOT; };
-		D0FE57A20993C5E500139A69 /* MacEventTap.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = MacEventTap.cpp; path = ../Platform/MacEventTap.cpp; sourceTree = SOURCE_ROOT; };
-		D0FE57A30993C5E500139A70 /* MacEventTap.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = MacEventTap.h; path = ../Platform/MacEventTap.h; sourceTree = SOURCE_ROOT; };
-		D0FE57A40993C5E500139A71 /* StringConv.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = StringConv.cpp; path = ../Utils/StringConv.cpp; sourceTree = SOURCE_ROOT; };
-		D0FE57A50993C5E500139A72 /* StringConv.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = StringConv.h; path = ../Utils/StringConv.h; sourceTree = SOURCE_ROOT; };
+		D0FE57A40993C9E500139A69 /* MacEventTap.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = MacEventTap.cpp; path = ../Platform/MacEventTap.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE57A50993C9E500139A70 /* MacEventTap.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = MacEventTap.h; path = ../Platform/MacEventTap.h; sourceTree = SOURCE_ROOT; };
+		D0FE57A50993C9E500139A71 /* StringConv.cpp */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.cpp.cpp; name = StringConv.cpp; path = ../Utils/StringConv.cpp; sourceTree = SOURCE_ROOT; };
+		D0FE57A60993C9E500139A72 /* StringConv.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; name = StringConv.h; path = ../Utils/StringConv.h; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -120,8 +120,8 @@
 		D0FE57660993C4FD00139A62 /* Platform */ = {
 			isa = PBXGroup;
 			children = (
-				D0FE57A20993C5E500139A69 /* MacEventTap.cpp */,
-				D0FE57A30993C5E500139A70 /* MacEventTap.h */,
+				D0FE57A40993C9E500139A69 /* MacEventTap.cpp */,
+				D0FE57A50993C9E500139A70 /* MacEventTap.h */,
 			);
 			name = Platform;
 			sourceTree = "<group>";
@@ -129,8 +129,8 @@
 		D0FE57670993C4FD00139A63 /* Utils */ = {
 			isa = PBXGroup;
 			children = (
-				D0FE57A40993C5E500139A71 /* StringConv.cpp */,
-				D0FE57A50993C5E500139A72 /* StringConv.h */,
+				D0FE57A50993C9E500139A71 /* StringConv.cpp */,
+				D0FE57A60993C9E500139A72 /* StringConv.h */,
 			);
 			name = Utils;
 			sourceTree = "<group>";
@@ -158,13 +158,13 @@
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		C4E6187E095A3C800012CA3F /* Project object */ = {
+		C4E6187E095A3C80012CA3F /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1620;
 			};
-			buildConfigurationList = C4E6187F095A3C800012CA3F /* Build configuration list for PBXProject "FoldLayers" */;
+			buildConfigurationList = C4E6187F095A3C80012CA3F /* Build configuration list for PBXProject "FoldLayers" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -206,7 +206,7 @@
 				D0FE57A00993C5E500139A62 /* FoldUnfold.cpp in Sources */,
 				D0FE57A10993C5E500139A63 /* GroupBuilder.cpp in Sources */,
 				D0FE57A20993C5E500139A64 /* GroupParser.cpp in Sources */,
-				D0FE57A30993C5E500139A65 /* MacEventTap.cpp in Sources */,
+				D0FE57A60993C9E500139A73 /* MacEventTap.cpp in Sources */,
 				D0FE57A40993C5E500139A66 /* StringConv.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -214,7 +214,7 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		C4E61880095A3C800012CA3F /* Debug */ = {
+		C4E61880095A3C80012CA3F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -265,6 +265,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HEADER_SEARCH_PATHS = (
 					..,
+					../Platform,
 					../../../Headers,
 					../../../Util,
 					../../../Headers/SP,
@@ -298,10 +299,10 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C4E6187F095A3C800012CA3F /* Build configuration list for PBXProject "FoldLayers" */ = {
+		C4E6187F095A3C80012CA3F /* Build configuration list for PBXProject "FoldLayers" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C4E61880095A3C800012CA3F /* Debug */,
+				C4E61880095A3C80012CA3F /* Debug */,
 			);
 			defaultConfigurationIsVisible = 1;
 			defaultConfigurationName = Debug;
@@ -316,5 +317,5 @@
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = C4E6187E095A3C800012CA3F /* Project object */;
+	rootObject = C4E6187E095A3C80012CA3F /* Project object */;
 }

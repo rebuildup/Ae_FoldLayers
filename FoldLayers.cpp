@@ -386,7 +386,6 @@ A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const st
             // 2. Create/Update hierarchy group "FD-H:xxx" for rename recovery
             if (!hierarchy.empty()) {
                 bool foundHierGroup = false;
-                AEGP_StreamRefH hierGroupH = NULL;
                 // First, try to find existing hierarchy group
                 A_long numStreams = 0;
                 if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
@@ -1136,7 +1135,7 @@ A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 		// by attempting a basic operation. If it fails, we need to report an error.
 		AEGP_LayerFlags flags;
 		A_Err verifyErr = suites.LayerSuite9()->AEGP_GetLayerFlags(newLayer, &flags);
-		A_Boolean videoActive = (flags & AEGP_LayerFlag_VIDEO_ACTIVE) != 0;
+		(void)flags; // Suppress unused variable warning
 		if (verifyErr) {
 			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Layer handle became invalid after reorder - operation failed.");
 			suites.UtilitySuite6()->AEGP_EndUndoGroup();
@@ -1351,7 +1350,6 @@ static A_Err IdleHook(
 	(void)refconPV;         // Unused parameter
 
 	S_idle_counter++;
-	A_Err err = A_Err_NONE;
 
 	AEGP_SuiteHandler suites(sP);
 	
