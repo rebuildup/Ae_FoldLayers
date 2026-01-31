@@ -1556,8 +1556,7 @@ void PollMouseState() {
 	// avoid triggering toggles from unrelated double-clicks elsewhere in AE UI.
 	if (S_event_tap_active) return;
 
-	// CRITICAL: Only trigger on double-click when a divider is selected
-	// Check if a divider is currently selected before processing mouse events
+	// Check if a divider is currently selected
 	pthread_mutex_lock(&S_mac_state_mutex);
 	const bool dividerSelected = S_mac_divider_selected_for_input;
 	pthread_mutex_unlock(&S_mac_state_mutex);
@@ -1666,10 +1665,15 @@ static A_Err IdleHook(
 			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		}
 	}
+
+	// Install event tap (may fail if Accessibility permissions not granted)
 	InstallMacEventTap();
 
-    PollMouseState();
-    
+	// Poll for mouse state as fallback when event tap is not available
+	// This detects double-clicks based on mouse event timing
+	PollMouseState();
+
+    // Process pending fold action from double-click
     if (S_pending_fold_action) {
         S_pending_fold_action = false;
 		if (dividerSelected) {
