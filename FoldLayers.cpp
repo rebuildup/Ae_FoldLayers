@@ -32,12 +32,12 @@
 #endif
 
 // Global variables
-static AEGP_PluginID	S_my_id				= 0;
-static SPBasicSuite		*sP					= NULL;
+AEGP_PluginID	S_my_id				= 0;
+SPBasicSuite		*sP					= NULL;
 
 // Menu command IDs
-static AEGP_Command		S_cmd_create_divider	= 0;
-static AEGP_Command		S_cmd_fold_unfold		= 0;
+AEGP_Command		S_cmd_create_divider	= 0;
+AEGP_Command		S_cmd_fold_unfold		= 0;
 
 #ifdef AE_OS_WIN
 // Windows: Mouse hook for double-click detection
@@ -50,7 +50,7 @@ static bool				S_is_divider_selected	= false; // Track selection state for hook
 #endif
 
 // Idle hook state
-static A_long			S_idle_counter			= 0;
+A_long			S_idle_counter			= 0;
 
 //=============================================================================
 // Helper Functions
