@@ -19,6 +19,10 @@ CFMachPortRef		S_event_tap = NULL;
 CFRunLoopSourceRef S_event_tap_source = NULL;
 bool				S_event_tap_active = false;
 pthread_mutex_t		S_mac_state_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Static state for polling fallback
+static bool			S_last_mouse_down = false;
+static double		S_last_click_time = 0.0;
 bool				S_mac_divider_selected_for_input = false;
 std::string			S_mac_selected_divider_full_name;
 bool				S_mac_selected_divider_valid = false;
