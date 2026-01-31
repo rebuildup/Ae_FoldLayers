@@ -21,8 +21,6 @@
 
 // Global variables for macOS event handling
 extern bool				S_pending_fold_action;
-extern double			S_last_left_down_event_ts;
-extern double			S_last_click_event_ts;
 extern CFMachPortRef	S_event_tap;
 extern CFRunLoopSourceRef S_event_tap_source;
 extern bool				S_event_tap_active;

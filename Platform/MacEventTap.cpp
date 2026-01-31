@@ -15,8 +15,6 @@
 
 // Global variables
 bool				S_pending_fold_action = false;
-double				S_last_left_down_event_ts = 0.0;
-double				S_last_click_event_ts = 0.0;
 CFMachPortRef		S_event_tap = NULL;
 CFRunLoopSourceRef S_event_tap_source = NULL;
 bool				S_event_tap_active = false;
@@ -148,13 +146,11 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 				pthread_mutex_unlock(&S_mac_state_mutex);
 
 				S_pending_fold_action = true;
-				S_last_click_event_ts = 0.0;
 				return NULL;
 			}
 
 			if (!S_mac_ax_hit_test_usable || MacHitTestLooksLikeSelectedDivider(loc)) {
 				S_pending_fold_action = true;
-				S_last_click_event_ts = 0.0;
 				return NULL;
 			}
 		}
@@ -193,6 +189,10 @@ void InstallMacEventTap()
 	S_event_tap_active = true;
 }
 
+// Global state for polling fallback
+static bool S_last_mouse_down = false;
+static double S_last_click_time = 0.0;
+
 void PollMouseState()
 {
 	// Check if a divider is currently selected
@@ -208,31 +208,25 @@ void PollMouseState()
 	// Even when the event tap is active, it may fail to suppress events
 	// (e.g., due to permissions issues or macOS changes). The polling
 	// fallback ensures double-click detection still works in those cases.
-	// The event tap callback sets S_last_click_event_ts = 0.0 to prevent
-	// double-triggering when both mechanisms are active.
+	// The polling uses button state transitions to detect clicks even
+	// while the mouse button is held down between double-clicks.
 
-	const double now = CFAbsoluteTimeGetCurrent();
-	const double since = CGEventSourceSecondsSinceLastEventType(
-		kCGEventSourceStateCombinedSessionState,
-		kCGEventLeftMouseDown);
-	if (!(since >= 0.0)) {
-		return;
-	}
-	const double event_ts = now - since;
+	// Use button state detection to catch clicks even while button is held down
+	const bool isDown = CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft);
 
-	// Detect arrival of a new left-mouse-down event.
-	if (event_ts > S_last_left_down_event_ts + 1e-4) {
-		S_last_left_down_event_ts = event_ts;
-
-		const double diff = event_ts - S_last_click_event_ts;
-		S_last_click_event_ts = event_ts;
+	if (isDown && !S_last_mouse_down) {
+		// Transition from up to down - new click detected
+		const double now = CFAbsoluteTimeGetCurrent();
+		const double diff = now - S_last_click_time;
+		S_last_click_time = now;
 
 		// Double click threshold (0.05s to 0.5s)
 		if (diff > 0.05 && diff < 0.5) {
 			S_pending_fold_action = true;
-			S_last_click_event_ts = 0.0;
+			S_last_click_time = 0.0; // Prevent consecutive triggering
 		}
 	}
+	S_last_mouse_down = isDown;
 }
 
 void InitMacEventTap()
