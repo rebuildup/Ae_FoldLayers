@@ -16,7 +16,7 @@
 		D0FE579F0993C5E500139A61 /* CreateDivider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A61 /* CreateDivider.cpp */; };
 		D0FE57A00993C5E500139A62 /* FoldUnfold.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A62 /* FoldUnfold.cpp */; };
 		D0FE57A10993C5E500139A63 /* GroupBuilder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A63 /* GroupBuilder.cpp */; };
-		D0FE57A20993C5E500139A64 /* GroupParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A64 /* GroupParser.cpp */; };
+		D0FE57A20993C5E500139A64 /* GroupParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE57A00993C5E500139A67 /* GroupParser.cpp */; };
 		D0FE57A30993C5E500139A65 /* MacEventTap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A65 /* MacEventTap.cpp */; };
 		D0FE57A40993C5E500139A66 /* StringConv.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D0FE579A0993C5E500139A66 /* StringConv.cpp */; };
 /* End PBXBuildFile section */
