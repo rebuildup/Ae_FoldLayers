@@ -615,64 +615,8 @@ bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 
 // Parse hierarchy from name
 // NOTE: Hierarchy is now stored in FD-H: group only, not in layer name
-// This function is kept for backward compatibility but always returns empty string
-// Use GetHierarchyFromHiddenGroup() instead for actual hierarchy retrieval
-std::string GetHierarchy(const std::string& name)
-{
-    // Hierarchy is stored in FD-H: group, not in layer name
-    // Layer names only contain visual prefix (▸/▾) and base name
-    (void)name;
-    return "";
-}
-
-// Get depth from hierarchy string with overflow protection
-// Returns depth or -1 on error (hierarchy too deep)
-int GetHierarchyDepth(const std::string& hierarchy)
-{
-	if (hierarchy.empty()) return 0;
-
-	// Safety check for maximum allowed depth
-	const int MAX_SAFE_DEPTH = 50;
-	int depth = 1;
-
-	for (char c : hierarchy) {
-		if (c == '/') {
-			depth++;
-			// Prevent overflow by limiting depth
-			if (depth > MAX_SAFE_DEPTH) {
-				return -1; // Error: hierarchy too deep
-			}
-		}
-	}
-	return depth;
-}
-
-// Get display name without prefix and hierarchy
-// Strips visual prefix (▸/▾) from layer name to get base name
-std::string GetDividerName(const std::string& fullName)
-{
-    // Add length limit to prevent excessive processing
-    const size_t MAX_LAYER_NAME_LENGTH = 4096;
-    if (fullName.length() > MAX_LAYER_NAME_LENGTH) {
-        return "Group"; // Return safe default for invalid input
-    }
-
-    // Check for UTF-8 prefix (▸ = \xE2\x96\xB8, ▾ = \xE2\x96\xBE)
-    if (fullName.length() >= 4) {
-        // Check if starts with UTF-8 fold state prefix
-        if ((unsigned char)fullName[0] == 0xE2 &&
-            (unsigned char)fullName[1] == 0x96 &&
-            ((unsigned char)fullName[2] == 0xB8 || (unsigned char)fullName[2] == 0xBE) &&
-            fullName[3] == ' ') {
-            // Skip the prefix and space, return the rest
-            return fullName.substr(4);
-        }
-    }
-
-    // No prefix found, return as-is
-    return fullName;
-}
-
+// GetHierarchy, GetHierarchyDepth, and GetDividerName are implemented in GroupParser.cpp
+// This avoids ODR violations and maintains proper module separation
 
 
 //=============================================================================
