@@ -583,8 +583,8 @@ static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
         std::string currentName;
         if (GetLayerNameStr(suites, layerH, currentName) != A_Err_NONE) return A_Err_GENERIC;
         std::string cleanName = currentName;
-        if (cleanName.size() > 4 && cleanName.substr(0, 4) == PREFIX_FOLDED) cleanName = cleanName.substr(4);
-        else if (cleanName.size() > 4 && cleanName.substr(0, 4) == PREFIX_UNFOLDED) cleanName = cleanName.substr(4);
+        if (cleanName.size() > UTF8_PREFIX_BYTES && cleanName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED) cleanName = cleanName.substr(UTF8_PREFIX_BYTES);
+        else if (cleanName.size() > UTF8_PREFIX_BYTES && cleanName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED) cleanName = cleanName.substr(UTF8_PREFIX_BYTES);
         
         std::string desiredPrefix = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
         if (currentName.rfind(desiredPrefix, 0) != 0) {
@@ -595,8 +595,8 @@ static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
         // No data stream. If it has divider prefix, initialize with FD-0.
         std::string currentName;
         if (GetLayerNameStr(suites, layerH, currentName) == A_Err_NONE) {
-             if (currentName.size() > 4 && 
-                (currentName.substr(0, 4) == PREFIX_FOLDED || currentName.substr(0, 4) == PREFIX_UNFOLDED)) {
+             if (currentName.size() > UTF8_PREFIX_BYTES &&
+                (currentName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED || currentName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED)) {
                  ERR(SetGroupState(suites, layerH, false));
              }
         }
@@ -674,14 +674,24 @@ static std::string GetHierarchy(const std::string& name)
 	return "";
 }
 
-// Get depth from hierarchy string
+// Get depth from hierarchy string with overflow protection
+// Returns depth or -1 on error (hierarchy too deep)
 static int GetHierarchyDepth(const std::string& hierarchy)
 {
 	if (hierarchy.empty()) return 0;
-	
+
+	// Safety check for maximum allowed depth
+	const int MAX_SAFE_DEPTH = 50;
 	int depth = 1;
+
 	for (char c : hierarchy) {
-		if (c == '/') depth++;
+		if (c == '/') {
+			depth++;
+			// Prevent overflow by limiting depth
+			if (depth > MAX_SAFE_DEPTH) {
+				return -1; // Error: hierarchy too deep
+			}
+		}
 	}
 	return depth;
 }
@@ -690,11 +700,11 @@ static int GetHierarchyDepth(const std::string& hierarchy)
 static std::string GetDividerName(const std::string& fullName)
 {
     size_t pos = 0;
-    
-    // Check if starts with Prefix (4 bytes)
-    if (fullName.length() >= 4) {
-        if (fullName.substr(0, 4) == PREFIX_FOLDED || fullName.substr(0, 4) == PREFIX_UNFOLDED) {
-            pos = 4;
+
+    // Check if starts with Prefix (UTF8_PREFIX_BYTES bytes)
+    if (fullName.length() >= UTF8_PREFIX_BYTES) {
+        if (fullName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED || fullName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED) {
+            pos = UTF8_PREFIX_BYTES;
         }
     }
 	
