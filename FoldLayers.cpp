@@ -628,23 +628,49 @@ static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 }
 
 // Parse hierarchy from name like "▾(1/B) Group" -> "1/B"
+// CRITICAL FIX: Added bounds checking to prevent buffer overflows and excessive parsing
 static std::string GetHierarchy(const std::string& name)
 {
+    // CRITICAL FIX: Reject extremely long names to prevent DoS/buffer overflow
+    const size_t MAX_LAYER_NAME_LENGTH = 4096;  // Reasonable limit for layer names
+    if (name.length() > MAX_LAYER_NAME_LENGTH) {
+        return "";
+    }
+
+    // CRITICAL FIX: Limit hierarchy extraction to prevent excessive string operations
+    const size_t MAX_HIERARCHY_LENGTH = 256;  // Reasonable limit for hierarchy strings
+
     size_t pos = 0;
-    if (name.length() >= 4 && (name.substr(0, 4) == PREFIX_FOLDED || name.substr(0, 4) == PREFIX_UNFOLDED)) {
-        pos = 4;
+    if (name.length() >= UTF8_PREFIX_BYTES && (name.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED || name.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED)) {
+        pos = UTF8_PREFIX_BYTES;
         // Skip space if present after prefix
         while (pos < name.length() && name[pos] == ' ') pos++;
     }
-	
+
 	// Check for hierarchy marker
 	if (pos < name.length() && name[pos] == '(') {
 		size_t endPos = name.find(')', pos);
 		if (endPos != std::string::npos) {
-			return name.substr(pos + 1, endPos - pos - 1);
+		    // CRITICAL FIX: Validate hierarchy length before extraction
+		    size_t hierarchyLen = endPos - pos - 1;
+		    if (hierarchyLen > MAX_HIERARCHY_LENGTH) {
+		        return "";
+		    }
+		    // CRITICAL FIX: Validate hierarchy contains only valid characters
+		    std::string hierarchy = name.substr(pos + 1, hierarchyLen);
+		    for (char c : hierarchy) {
+		        // Only allow: digits, letters, forward slash
+		        if (!((c >= '0' && c <= '9') ||
+		              (c >= 'A' && c <= 'Z') ||
+		              (c >= 'a' && c <= 'z') ||
+		              c == '/')) {
+		            return "";
+		        }
+		    }
+		    return hierarchy;
 		}
 	}
-	
+
 	return "";
 }
 
