@@ -5,10 +5,12 @@
 /*      Developer: 361do_plugins                                   */
 /*      https://github.com/rebuildup                               */
 /*                                                                 */
-/*      Hierarchy naming:                                          */
-/*      - Top level: ▾ Group Divider                               */
-/*      - Nested:    ▾(1) Group Divider                            */
-/*      - Deeper:    ▾(1/B) Group Divider                          */
+/*      Pure ID-based fold state management:                       */
+/*      - Layer names NEVER change - user's original name is kept  */
+/*      - Fold state stored in hidden stream groups: FD-0 (unfolded)*/
+/*        and FD-1 (folded)                                        */
+/*      - Hierarchy stored in FD-H: group for nesting             */
+/*      - No ▸/▾ prefixes in layer names                           */
 /*                                                                 */
 /*******************************************************************/
 
@@ -140,45 +142,21 @@ static A_Err SetLayerNameStr(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, cons
 	return err;
 }
 
-// Build divider name with prefix, hierarchy, and base name
-// CRITICAL FIX: Added bounds checking to prevent buffer overflows
+// Build divider name - pure ID-based, no prefix in layer name
+// Fold state is stored only in FD-0/FD-1 hidden stream groups
 static std::string BuildDividerName(bool folded, const std::string& hierarchy, const std::string& name)
 {
-	// CRITICAL FIX: Add length limits to prevent excessive string growth
-	const size_t MAX_HIERARCHY_LENGTH = 256;
+	// Pure ID-based: no prefix, just return the name
+	// Fold state is in FD-0/FD-1 only, hierarchy is in FD-H:
+	(void)folded;  // Unused - state is in FD-0/FD-1 only
+	(void)hierarchy;  // Unused - hierarchy is in FD-H: only
+
+	// Add length limit to prevent excessive string growth
 	const size_t MAX_NAME_LENGTH = 1024;
-	const size_t MAX_RESULT_LENGTH = 2048;
-
-	std::string result = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
-
-	// Validate and limit hierarchy length
-	if (!hierarchy.empty()) {
-		if (hierarchy.length() > MAX_HIERARCHY_LENGTH) {
-			// Truncate hierarchy if too long
-			result += "(";
-			result += hierarchy.substr(0, MAX_HIERARCHY_LENGTH);
-			result += "... ";
-		} else {
-			result += "(";
-			result += hierarchy;
-			result += ") ";
-		}
-	}
-
-	// Validate and limit name length
 	if (name.length() > MAX_NAME_LENGTH) {
-		result += name.substr(0, MAX_NAME_LENGTH);
-		result += "...";
-	} else {
-		result += name;
+		return name.substr(0, MAX_NAME_LENGTH) + "...";
 	}
-
-	// Safety check: truncate final result if still too long
-	if (result.length() > MAX_RESULT_LENGTH) {
-		result = result.substr(0, MAX_RESULT_LENGTH);
-	}
-
-	return result;
+	return name;
 }
 
 
@@ -595,102 +573,36 @@ static A_Err SetGroupState(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, bool s
 
 static A_Err SyncLayerName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
-    A_Err err = A_Err_NONE;
-    AEGP_StreamRefH groupDataH = NULL;
-    bool folded = true;
-    if (GetFoldGroupDataStream(suites, layerH, &groupDataH, &folded) == A_Err_NONE && groupDataH) {
-        std::string currentName;
-        if (GetLayerNameStr(suites, layerH, currentName) != A_Err_NONE) return A_Err_GENERIC;
-        std::string cleanName = currentName;
-        if (cleanName.size() > UTF8_PREFIX_BYTES && cleanName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED) cleanName = cleanName.substr(UTF8_PREFIX_BYTES);
-        else if (cleanName.size() > UTF8_PREFIX_BYTES && cleanName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED) cleanName = cleanName.substr(UTF8_PREFIX_BYTES);
-        
-        std::string desiredPrefix = folded ? PREFIX_FOLDED : PREFIX_UNFOLDED;
-        if (currentName.rfind(desiredPrefix, 0) != 0) {
-             ERR(SetLayerNameStr(suites, layerH, desiredPrefix + cleanName));
-        }
-        suites.StreamSuite4()->AEGP_DisposeStream(groupDataH);
-    } else {
-        // No data stream. If it has divider prefix, initialize with FD-0.
-        std::string currentName;
-        if (GetLayerNameStr(suites, layerH, currentName) == A_Err_NONE) {
-             if (currentName.size() > UTF8_PREFIX_BYTES &&
-                (currentName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED || currentName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED)) {
-                 ERR(SetGroupState(suites, layerH, false));
-             }
-        }
-    }
-    return err;
+    // Pure ID-based: no longer syncs name prefix with fold state
+    // Layer names should never change - fold state is in FD-0/FD-1 only
+    (void)suites;
+    (void)layerH;
+    return A_Err_NONE;
 }
 
 static bool IsDividerFolded(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
+    // Pure ID-based: only check FD-0/FD-1 state, no name fallback
     AEGP_StreamRefH dataH = NULL;
-    bool folded = true;
+    bool folded = true;  // Default to folded for safety
     if (GetFoldGroupDataStream(suites, layerH, &dataH, &folded) == A_Err_NONE && dataH) {
         suites.StreamSuite4()->AEGP_DisposeStream(dataH);
         return folded;
     }
-    // Fallback to name check
-    std::string name;
-    if (GetLayerNameStr(suites, layerH, name) == A_Err_NONE) {
-        if (name.length() >= 3) {
-            unsigned char c0 = (unsigned char)name[0];
-            unsigned char c1 = (unsigned char)name[1];
-            unsigned char c2 = (unsigned char)name[2];
-            if (c0 == 0xE2 && c1 == 0x96 && c2 == 0xB8) {
-                return true;
-            }
-        }
-    }
-    return false;
+    // No FD data stream found - default to folded state
+    return true;
 }
 
-// Parse hierarchy from name like "▾(1/B) Group" -> "1/B"
-// CRITICAL FIX: Added bounds checking to prevent buffer overflows and excessive parsing
+// Parse hierarchy from name - pure ID-based version
+// No longer extracts hierarchy from layer name (it's in FD-H: group only)
+// This function is kept for backward compatibility but always returns empty string
+// Use GetHierarchyFromHiddenGroup() instead for actual hierarchy retrieval
 static std::string GetHierarchy(const std::string& name)
 {
-    // CRITICAL FIX: Reject extremely long names to prevent DoS/buffer overflow
-    const size_t MAX_LAYER_NAME_LENGTH = 4096;  // Reasonable limit for layer names
-    if (name.length() > MAX_LAYER_NAME_LENGTH) {
-        return "";
-    }
-
-    // CRITICAL FIX: Limit hierarchy extraction to prevent excessive string operations
-    const size_t MAX_HIERARCHY_LENGTH = 256;  // Reasonable limit for hierarchy strings
-
-    size_t pos = 0;
-    if (name.length() >= UTF8_PREFIX_BYTES && (name.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED || name.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED)) {
-        pos = UTF8_PREFIX_BYTES;
-        // Skip space if present after prefix
-        while (pos < name.length() && name[pos] == ' ') pos++;
-    }
-
-	// Check for hierarchy marker
-	if (pos < name.length() && name[pos] == '(') {
-		size_t endPos = name.find(')', pos);
-		if (endPos != std::string::npos) {
-		    // CRITICAL FIX: Validate hierarchy length before extraction
-		    size_t hierarchyLen = endPos - pos - 1;
-		    if (hierarchyLen > MAX_HIERARCHY_LENGTH) {
-		        return "";
-		    }
-		    // CRITICAL FIX: Validate hierarchy contains only valid characters
-		    std::string hierarchy = name.substr(pos + 1, hierarchyLen);
-		    for (char c : hierarchy) {
-		        // Only allow: digits, letters, forward slash
-		        if (!((c >= '0' && c <= '9') ||
-		              (c >= 'A' && c <= 'Z') ||
-		              (c >= 'a' && c <= 'z') ||
-		              c == '/')) {
-		            return "";
-		        }
-		    }
-		    return hierarchy;
-		}
-	}
-
-	return "";
+    // Pure ID-based: hierarchy is stored in FD-H: group, not in layer name
+    // This function is kept for compatibility but returns empty string
+    (void)name;
+    return "";
 }
 
 // Get depth from hierarchy string with overflow protection
@@ -715,38 +627,18 @@ static int GetHierarchyDepth(const std::string& hierarchy)
 	return depth;
 }
 
-// Get display name without prefix and hierarchy
-// CRITICAL FIX: Added bounds checking to prevent out-of-bounds access
+// Get display name without prefix and hierarchy - pure ID-based version
+// No longer strips prefix/hierarchy from layer name (they don't exist in names)
+// Returns the name as-is since layer names never contain prefixes in pure ID mode
 static std::string GetDividerName(const std::string& fullName)
 {
-    // CRITICAL FIX: Add length limit to prevent excessive processing
+    // Pure ID-based: layer names don't have prefixes, return as-is
+    // Add length limit to prevent excessive processing
     const size_t MAX_LAYER_NAME_LENGTH = 4096;
     if (fullName.length() > MAX_LAYER_NAME_LENGTH) {
         return "Group"; // Return safe default for invalid input
     }
-
-    size_t pos = 0;
-
-    // Check if starts with Prefix (UTF8_PREFIX_BYTES bytes)
-    if (fullName.length() >= UTF8_PREFIX_BYTES) {
-        if (fullName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_FOLDED || fullName.substr(0, UTF8_PREFIX_BYTES) == PREFIX_UNFOLDED) {
-            pos = UTF8_PREFIX_BYTES;
-        }
-    }
-
-	// Skip hierarchy if present
-	if (pos < fullName.length() && fullName[pos] == '(') {
-		size_t endPos = fullName.find(')', pos);
-		if (endPos != std::string::npos) {
-			pos = endPos + 1;
-			// Skip space after hierarchy with bounds check
-			while (pos < fullName.length() && fullName[pos] == ' ') pos++;
-		}
-	}
-
-	if (pos > 0 && pos >= fullName.length()) return "Group";
-    if (pos == 0) return fullName;
-	return fullName.substr(pos);
+    return fullName;
 }
 
 
@@ -777,7 +669,7 @@ static A_Err GetActiveComp(AEGP_SuiteHandler& suites, AEGP_CompH* compH)
 
 // Get layers that belong to this divider's group
 // Considers hierarchy - stops at same or higher level divider
-// CRITICAL FIX: Added error checking for invalid hierarchy depths
+// Pure ID-based: uses FD-H: group for hierarchy information
 static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
                             A_long dividerIndex, const std::string& dividerHierarchy,
                             std::vector<AEGP_LayerH>& groupLayers)
@@ -786,7 +678,7 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 	A_long numLayers = 0;
 	int myDepth = GetHierarchyDepth(dividerHierarchy);
 
-	// CRITICAL FIX: Check for invalid hierarchy depth
+	// Check for invalid hierarchy depth
 	if (myDepth < 0) {
 		return A_Err_GENERIC;
 	}
@@ -797,15 +689,12 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 		AEGP_LayerH layer = NULL;
 		ERR(suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &layer));
 		if (!err && layer) {
-			std::string name;
-			ERR(GetLayerNameStr(suites, layer, name));
-
-			if (!err && IsDividerLayer(suites, layer)) {
-				// Check hierarchy depth
-				std::string otherHierarchy = GetHierarchy(name);
+			if (IsDividerLayer(suites, layer)) {
+				// Pure ID-based: get hierarchy from FD-H: group
+				std::string otherHierarchy = GetHierarchyFromHiddenGroup(suites, layer);
 				int otherDepth = GetHierarchyDepth(otherHierarchy);
 
-				// CRITICAL FIX: Check for invalid sub-hierarchy depth
+				// Check for invalid sub-hierarchy depth
 				if (otherDepth < 0) {
 					err = A_Err_GENERIC;
 					break;
@@ -828,8 +717,8 @@ static A_Err GetGroupLayers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 
 
 
-// Fold/unfold a divider with rollback on error
-// CRITICAL FIX: Added rollback logic and proper error propagation
+// Fold/unfold a divider - pure ID-based version
+// No longer modifies layer names - only uses FD-0/FD-1 for state
 static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
                          AEGP_LayerH dividerLayer, A_long dividerIndex, bool fold)
 {
@@ -837,16 +726,8 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 
 	if (!dividerLayer || !compH) return A_Err_STRUCT;
 
-	// Store original layer name for potential rollback
-	std::string originalName;
-	ERR(GetLayerNameStr(suites, dividerLayer, originalName));
-	if (err) return err;
-
 	// Validate hierarchy depth before proceeding
 	std::string hierarchy = GetHierarchyFromHiddenGroup(suites, dividerLayer);
-	if (hierarchy.empty()) {
-		hierarchy = GetHierarchy(originalName);
-	}
 	int depth = GetHierarchyDepth(hierarchy);
 	if (depth < 0) {
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Invalid hierarchy depth - cannot fold/unfold group.");
@@ -861,23 +742,11 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 		return stateErr;
 	}
 
-	// Build and set new layer name
-	std::string baseName = GetDividerName(originalName);
-	std::string newName = BuildDividerName(fold, hierarchy, baseName);
-	A_Err nameErr = SetLayerNameStr(suites, dividerLayer, newName);
-	if (nameErr) {
-		// Name change failed - attempt rollback of state
-		SetGroupState(suites, dividerLayer, !fold); // Attempt to restore previous state
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to update layer name - changes rolled back.");
-		return nameErr;
-	}
-
 	// Get group layers
 	std::vector<AEGP_LayerH> groupLayers;
 	ERR(GetGroupLayers(suites, compH, dividerIndex, hierarchy, groupLayers));
 	if (err) {
-		// Failed to get group layers - rollback name and state
-		SetLayerNameStr(suites, dividerLayer, originalName);
+		// Failed to get group layers - rollback state
 		SetGroupState(suites, dividerLayer, !fold);
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Failed to get group layers - changes rolled back.");
 		return err;
@@ -911,7 +780,8 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 		std::string subHier;
 		int subDepth = 0;
 		if (subIsDivider) {
-			subHier = GetHierarchy(subName);
+			// Pure ID-based: get hierarchy from FD-H: group, not from name
+			subHier = GetHierarchyFromHiddenGroup(suites, subLayer);
 			subDepth = GetHierarchyDepth(subHier);
 			// Validate sub-hierarchy depth
 			if (subDepth < 0) {
@@ -959,8 +829,7 @@ static A_Err FoldDivider(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 				suites.LayerSuite9()->AEGP_SetLayerFlag(modifiedLayers[i], AEGP_LayerFlag_SHY, originalShyStates[i]);
 			}
 		}
-		// Rollback name and state
-		SetLayerNameStr(suites, dividerLayer, originalName);
+		// Rollback state (no name to rollback in pure ID mode)
 		SetGroupState(suites, dividerLayer, !fold);
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Error during fold/unfold - all changes rolled back.");
 	}
@@ -988,21 +857,17 @@ static A_Err GetAllDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH,
 {
 	A_Err err = A_Err_NONE;
 	A_long numLayers = 0;
-	
+
 	ERR(suites.LayerSuite9()->AEGP_GetCompNumLayers(compH, &numLayers));
-	
+
 	for (A_long i = 0; i < numLayers && !err; i++) {
 		AEGP_LayerH layer = NULL;
 		ERR(suites.LayerSuite9()->AEGP_GetCompLayerByIndex(compH, i, &layer));
-		if (!err && layer) {
-			std::string name;
-			ERR(GetLayerNameStr(suites, layer, name));
-			if (!err && IsDividerLayer(suites, layer)) {
-				dividers.push_back(std::make_pair(layer, i));
-			}
+		if (!err && layer && IsDividerLayer(suites, layer)) {
+			dividers.push_back(std::make_pair(layer, i));
 		}
 	}
-	
+
 	return err;
 }
 
@@ -1011,30 +876,27 @@ static A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool
 {
 	A_Err err = A_Err_NONE;
 	*result = false;
-	
+
 	AEGP_Collection2H collectionH = NULL;
 	A_u_long numSelected = 0;
-	
+
 	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
 	if (!err && collectionH) {
 		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-		
-		for (A_u_long i = 0; i < numSelected && !err; i++) {
+
+		for (A_u_long i = 0; i < numSelected && !err && !*result; i++) {
 			AEGP_CollectionItemV2 item;
 			ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
 			if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-				std::string name;
-				ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-				if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
+				if (IsDividerLayer(suites, item.u.layer.layerH)) {
 					*result = true;
-					break;
 				}
 			}
 		}
-		
+
 		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 	}
-	
+
 	return err;
 }
 
@@ -1042,22 +904,20 @@ static A_Err IsDividerSelected(AEGP_SuiteHandler& suites, AEGP_CompH compH, bool
 static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 {
 	A_Err err = A_Err_NONE;
-	
+
 	AEGP_Collection2H collectionH = NULL;
 	A_u_long numSelected = 0;
-	
+
 	ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
 	if (!err && collectionH) {
 		ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-		
+
 		if (!err && numSelected > 0) {
 			for (A_u_long i = 0; i < numSelected && !err; i++) {
 				AEGP_CollectionItemV2 item;
 				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, i, &item));
 				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-					std::string name;
-					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-					if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
+					if (IsDividerLayer(suites, item.u.layer.layerH)) {
 						A_long idx = 0;
 						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
 						if (!err) {
@@ -1067,10 +927,10 @@ static A_Err ToggleSelectedDividers(AEGP_SuiteHandler& suites, AEGP_CompH compH)
 				}
 			}
 		}
-		
+
 		suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 	}
-	
+
 	return err;
 }
 
@@ -1141,10 +1001,9 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 				ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &insertIndex));
 				
 				// Check if selected layer is a divider - if so, nest under it
-				std::string selName;
-				ERR(GetLayerNameStr(suites, item.u.layer.layerH, selName));
 				if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
-					std::string selHierarchy = GetHierarchy(selName);
+					// Pure ID-based: get hierarchy from FD-H: group, not from name
+					std::string selHierarchy = GetHierarchyFromHiddenGroup(suites, item.u.layer.layerH);
 
 					// Check if parent hierarchy is already too deep
 					int selDepth = GetHierarchyDepth(selHierarchy);
@@ -1176,20 +1035,17 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 					std::string prefix = selHierarchy.empty() ? "" : selHierarchy + "/";
 
 					for (auto& div : allDividers) {
-						std::string divName;
-						ERR(GetLayerNameStr(suites, div.first, divName));
-						if (!err) {
-							std::string divHier = GetHierarchy(divName);
-							// Check if it's a direct child
-							if (!prefix.empty() && divHier.length() >= prefix.length() && divHier.substr(0, prefix.length()) == prefix) {
-								// Count only direct children (no additional /)
-								std::string remainder = divHier.substr(prefix.length());
-								if (remainder.find('/') == std::string::npos) {
-									childCount++;
-								}
-							} else if (prefix.empty() && !divHier.empty() && divHier.find('/') == std::string::npos) {
+						// Pure ID-based: get hierarchy from FD-H: group, not from name
+						std::string divHier = GetHierarchyFromHiddenGroup(suites, div.first);
+						// Check if it's a direct child
+						if (!prefix.empty() && divHier.length() >= prefix.length() && divHier.substr(0, prefix.length()) == prefix) {
+							// Count only direct children (no additional /)
+							std::string remainder = divHier.substr(prefix.length());
+							if (remainder.find('/') == std::string::npos) {
 								childCount++;
 							}
+						} else if (prefix.empty() && !divHier.empty() && divHier.find('/') == std::string::npos) {
+							childCount++;
 						}
 					}
 
@@ -1263,8 +1119,9 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
 
 	if (!err && newLayer) {
-		// Set layer name with hierarchy
-		std::string dividerName = BuildDividerName(false, parentHierarchy, "Group");
+		// Set layer name without prefix (pure ID-based)
+		// Use "Group" as default name, user can rename it
+		std::string dividerName = "Group";
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
 		if (err) {
 			suites.UtilitySuite6()->AEGP_EndUndoGroup();
@@ -1437,29 +1294,26 @@ static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 static A_Err ProcessDoubleClick()
 {
 	A_Err err = A_Err_NONE;
-	
+
 	AEGP_SuiteHandler suites(sP);
-	
+
 	AEGP_CompH compH = NULL;
 	ERR(GetActiveComp(suites, &compH));
-	
+
 	if (!err && compH) {
 		AEGP_Collection2H collectionH = NULL;
 		A_u_long numSelected = 0;
-		
+
 		ERR(suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH));
 		if (!err && collectionH) {
 			ERR(suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected));
-			
+
 			if (!err && numSelected == 1) {
 				AEGP_CollectionItemV2 item;
 				ERR(suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item));
-				
+
 				if (!err && item.type == AEGP_CollectionItemType_LAYER) {
-					std::string name;
-					ERR(GetLayerNameStr(suites, item.u.layer.layerH, name));
-					
-					if (!err && IsDividerLayer(suites, item.u.layer.layerH)) {
+					if (IsDividerLayer(suites, item.u.layer.layerH)) {
 						// Divider is selected and double-clicked - toggle!
 						A_long idx = 0;
 						ERR(suites.LayerSuite9()->AEGP_GetLayerIndex(item.u.layer.layerH, &idx));
@@ -1471,11 +1325,11 @@ static A_Err ProcessDoubleClick()
 					}
 				}
 			}
-			
+
 			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
 		}
 	}
-	
+
 	return err;
 }
 
