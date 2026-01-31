@@ -1267,35 +1267,53 @@ static A_Err DoCreateDivider(AEGP_SuiteHandler& suites)
 	}
 	
 	ERR(suites.UtilitySuite6()->AEGP_StartUndoGroup("Create Group Divider"));
-	
+
 	// Create SHAPE layer
 	AEGP_LayerH newLayer = NULL;
 	ERR(suites.CompSuite11()->AEGP_CreateVectorLayerInComp(compH, &newLayer));
-	
+
 	if (!err && newLayer) {
 		// Set layer name with hierarchy
 		std::string dividerName = BuildDividerName(false, parentHierarchy, "Group");
 		ERR(SetLayerNameStr(suites, newLayer, dividerName));
-		
+		if (err) {
+			suites.UtilitySuite6()->AEGP_EndUndoGroup();
+			return err;
+		}
+
 		// Move to insert position.
 		// - If a layer is selected: place the divider directly below it.
 		// - If nothing is selected: place the divider at the top (index 0).
 		// Note: This project treats layer indices as 0-based (see GetCompLayerByIndex loops).
 		const A_long targetIndex = (insertIndex >= 0) ? (insertIndex + 1) : 0;
 		ERR(suites.LayerSuite9()->AEGP_ReorderLayer(newLayer, targetIndex));
-		
+		if (err) {
+			suites.UtilitySuite6()->AEGP_EndUndoGroup();
+			return err;
+		}
+
+		// CRITICAL FIX: After reorder operation, verify handle is still valid
+		// by attempting a basic operation. If it fails, we need to report an error.
+		A_Boolean videoActive = FALSE;
+		A_Err verifyErr = suites.LayerSuite9()->AEGP_GetLayerFlag(newLayer, AEGP_LayerFlag_VIDEO_ACTIVE, &videoActive);
+		if (verifyErr) {
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Layer handle became invalid after reorder - operation failed.");
+			suites.UtilitySuite6()->AEGP_EndUndoGroup();
+			return verifyErr;
+		}
+
 		// Set VIDEO OFF (invisible)
 		ERR(suites.LayerSuite9()->AEGP_SetLayerFlag(newLayer, AEGP_LayerFlag_VIDEO_ACTIVE, FALSE));
-		
+
 		// Set label to 0 (None)
 		ERR(suites.LayerSuite9()->AEGP_SetLayerLabel(newLayer, 0));
 
 		// Add identity group with hierarchy info
 		ERR(AddDividerIdentity(suites, newLayer, parentHierarchy));
 	}
-	
+
 	ERR(suites.UtilitySuite6()->AEGP_EndUndoGroup());
-	
+
 	return err;
 }
 
