@@ -54,15 +54,6 @@ static A_long			S_idle_counter			= 0;
 // Helper Functions
 //=============================================================================
 
-static bool IsDividerNameFast(const std::string& name)
-{
-	if (name.length() < 3) return false;
-	const unsigned char c0 = (unsigned char)name[0];
-	const unsigned char c1 = (unsigned char)name[1];
-	const unsigned char c2 = (unsigned char)name[2];
-	return (c0 == 0xE2 && c1 == 0x96 && (c2 == 0xB8 || c2 == 0xBE));
-}
-
 // Define missing constant if needed
 #ifndef AEGP_LayerStream_ROOT_VECTORS_GROUP
 	#define AEGP_LayerStream_ROOT_VECTORS_GROUP	((AEGP_LayerStream)0x0D) // 13 in some versions, or check SDK
@@ -478,36 +469,22 @@ static A_Err AddDividerIdentity(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, c
 
 
 // Check if layer is a group divider
-// IMPORTANT: Checks FD- identity FIRST (reliable), then falls back to name-based check
-// This ensures only layers with FD- identity (created by this plugin) are recognized as groups
+// Only layers with FD- identity (hidden stream groups) are recognized as groups
+// This ensures only layers created by this plugin can be folded/unfolded
 static bool IsDividerLayer(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
-	// First check FD- identity (reliable - only our plugin creates this)
 	if (!suites.StreamSuite4()) return false; // Safety check
-	if (HasDividerIdentity(suites, layerH)) return true;
-
-	// Fallback to legacy name-based check for backward compatibility
-	// This allows old groups created before FD- identity system to still work
-	std::string name;
-	if (GetLayerNameStr(suites, layerH, name) == A_Err_NONE) {
-		if (IsDividerNameFast(name)) return true;
-	}
-
-	return false;
+	return HasDividerIdentity(suites, layerH);
 }
 
 // Variant for when we already have the layer name (optimization)
-// Still checks FD- identity FIRST for reliability
+// Name parameter is ignored - only FD- identity matters
+// This signature is kept for compatibility with existing code
 static bool IsDividerLayerWithKnownName(AEGP_SuiteHandler& suites, AEGP_LayerH layerH, const std::string& name)
 {
-	// First check FD- identity (reliable)
+	(void)name; // Unused parameter - only FD- identity matters
 	if (!suites.StreamSuite4()) return false;
-	if (HasDividerIdentity(suites, layerH)) return true;
-
-	// Fallback to name-based check
-	if (IsDividerNameFast(name)) return true;
-
-	return false;
+	return HasDividerIdentity(suites, layerH);
 }
 
 

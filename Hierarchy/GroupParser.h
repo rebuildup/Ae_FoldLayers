@@ -13,9 +13,6 @@
 #include "AEConfig.h"
 #include <string>
 
-// Fast check for divider name prefix (▸ or ▾)
-bool IsDividerNameFast(const std::string& name);
-
 // Parse hierarchy from name like "▾(1/B) Group" -> "1/B"
 std::string GetHierarchy(const std::string& name);
 

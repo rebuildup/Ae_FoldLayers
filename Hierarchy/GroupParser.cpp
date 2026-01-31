@@ -8,15 +8,6 @@
 #include "GroupParser.h"
 #include "FoldLayers.h"
 
-bool IsDividerNameFast(const std::string& name)
-{
-	if (name.length() < MIN_GROUP_NAME_LENGTH) return false;
-	const unsigned char c0 = (unsigned char)name[0];
-	const unsigned char c1 = (unsigned char)name[1];
-	const unsigned char c2 = (unsigned char)name[2];
-	return (c0 == UTF8_BYTE_0 && c1 == UTF8_BYTE_1 && (c2 == UTF8_BYTE_2_FOLDED || c2 == UTF8_BYTE_2_UNFOLDED));
-}
-
 std::string GetHierarchy(const std::string& name)
 {
 	// CRITICAL FIX: Reject extremely long names to prevent DoS/buffer overflow
