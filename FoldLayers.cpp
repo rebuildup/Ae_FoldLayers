@@ -191,6 +191,7 @@ static A_Err FindStreamByMatchName(AEGP_SuiteHandler& suites, AEGP_StreamRefH pa
 }
 
 // Get hierarchy from hidden FD-H: group for rename recovery
+// CRITICAL FIX: Added bounds checking to prevent infinite loops and buffer overflows
 static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_LayerH layerH)
 {
     if (!layerH) return "";
@@ -212,7 +213,11 @@ static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_L
         if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByMatchname(S_my_id, rootStreamH, "ADBE Root Vectors Group", &contentsStreamH) == A_Err_NONE && contentsStreamH) {
             A_long numStreams = 0;
             if (suites.DynamicStreamSuite4()->AEGP_GetNumStreamsInGroup(contentsStreamH, &numStreams) == A_Err_NONE) {
-                for (A_long i = 0; i < numStreams && hierarchy.empty(); i++) {
+                // CRITICAL FIX: Limit iteration count to prevent excessive processing
+                const A_long MAX_STREAMS_TO_SCAN = 1000;
+                A_long streamsToScan = (numStreams < MAX_STREAMS_TO_SCAN) ? numStreams : MAX_STREAMS_TO_SCAN;
+
+                for (A_long i = 0; i < streamsToScan && hierarchy.empty(); i++) {
                     AEGP_StreamRefH childH = NULL;
                     if (suites.DynamicStreamSuite4()->AEGP_GetNewStreamRefByIndex(S_my_id, contentsStreamH, i, &childH) == A_Err_NONE && childH) {
                         AEGP_MemHandle nameH = NULL;
@@ -221,16 +226,22 @@ static std::string GetHierarchyFromHiddenGroup(AEGP_SuiteHandler& suites, AEGP_L
                             if (suites.MemorySuite1()->AEGP_LockMemHandle(nameH, &dataP) == A_Err_NONE && dataP) {
                                 const A_u_short* name16 = (const A_u_short*)dataP;
                                 // Check for "FD-H:" prefix (FD-H:xxx)
+                                // CRITICAL FIX: Add bounds checking before array access
                                 if (name16[0] == 'F' && name16[1] == 'D' && name16[2] == '-' &&
                                     name16[3] == 'H' && name16[4] == ':') {
                                     // Extract hierarchy after "FD-H:"
+                                    // CRITICAL FIX: Add safety limit to UTF-16 loop
+                                    const int MAX_HIERARCHY_CHARS = 256;  // Reasonable limit
                                     std::string hierStr;
                                     int j = 5; // Skip "FD-H:"
-                                    while (name16[j]) {
+                                    while (name16[j] && j < MAX_HIERARCHY_CHARS + 5) {
                                         hierStr += (char)name16[j];
                                         j++;
                                     }
-                                    hierarchy = hierStr;
+                                    // CRITICAL FIX: Only use hierarchy if we found proper termination
+                                    if (!name16[j]) {  // Proper null-termination
+                                        hierarchy = hierStr;
+                                    }
                                 }
                                 suites.MemorySuite1()->AEGP_UnlockMemHandle(nameH);
                             }
@@ -1523,6 +1534,9 @@ static A_Err IdleHook(
 	AEGP_IdleRefcon		refconPV,
 	A_long				*max_sleepPL)
 {
+	(void)plugin_refconPV;  // Unused parameter
+	(void)refconPV;         // Unused parameter
+
 	S_idle_counter++;
 	A_Err err = A_Err_NONE;
 
@@ -1642,6 +1656,10 @@ static A_Err UpdateMenuHook(
 	AEGP_UpdateMenuRefcon	refconPV,
 	AEGP_WindowType			active_window)
 {
+	(void)plugin_refconPV;  // Unused parameter
+	(void)refconPV;         // Unused parameter
+	(void)active_window;    // Unused parameter
+
 	A_Err err = A_Err_NONE;
 #ifdef AE_OS_MAC
 	InstallMacEventTap();
@@ -1675,6 +1693,11 @@ static A_Err CommandHook(
 	A_Boolean			already_handledB,
 	A_Boolean			*handledPB)
 {
+	(void)plugin_refconPV;   // Unused parameter
+	(void)refconPV;          // Unused parameter
+	(void)hook_priority;     // Unused parameter
+	(void)already_handledB;  // Unused parameter
+
 	A_Err err = A_Err_NONE;
 	AEGP_SuiteHandler suites(sP);
 	

@@ -312,6 +312,12 @@
   <ItemGroup>
     <ClInclude Include="..\FoldLayers.h" />
     <ClInclude Include="..\FoldLayers_Strings.h" />
+    <ClInclude Include="..\Commands\CreateDivider.h" />
+    <ClInclude Include="..\Commands\FoldUnfold.h" />
+    <ClInclude Include="..\Hierarchy\GroupBuilder.h" />
+    <ClInclude Include="..\Hierarchy\GroupParser.h" />
+    <ClInclude Include="..\Platform\WindowsHook.h" />
+    <ClInclude Include="..\Utils\StringConv.h" />
     <ClInclude Include="..\..\..\Headers\A.h" />
     <ClInclude Include="..\..\..\Headers\AE_Effect.h" />
     <ClInclude Include="..\..\..\Headers\AE_EffectCB.h" />
