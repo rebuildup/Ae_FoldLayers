@@ -1395,47 +1395,8 @@ static A_Err IdleHook(
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider SELECTED");
 	} else if (!dividerSelected && s_last_selected_count == 1) {
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider DESELECTED");
-		// Clear cached divider name when deselected
-		pthread_mutex_lock(&S_mac_state_mutex);
-		S_mac_last_logged_divider_name.clear();
-		pthread_mutex_unlock(&S_mac_state_mutex);
 	}
 	s_last_selected_count = dividerSelected ? 1 : 0;
-
-	if (dividerSelected) {
-		AEGP_Collection2H collectionH = NULL;
-		A_u_long numSelected = 0;
-		if (suites.CompSuite11()->AEGP_GetNewCollectionFromCompSelection(S_my_id, compH, &collectionH) == A_Err_NONE && collectionH) {
-			suites.CollectionSuite2()->AEGP_GetCollectionNumItems(collectionH, &numSelected);
-			if (numSelected == 1) {
-				AEGP_CollectionItemV2 item;
-				if (suites.CollectionSuite2()->AEGP_GetCollectionItemByIndex(collectionH, 0, &item) == A_Err_NONE &&
-					item.type == AEGP_CollectionItemType_LAYER) {
-					std::string name;
-					if (GetLayerNameStr(suites, item.u.layer.layerH, name) == A_Err_NONE &&
-						IsDividerLayerWithKnownName(suites, item.u.layer.layerH, name)) {
-						// Only log when the divider name actually changes
-						pthread_mutex_lock(&S_mac_state_mutex);
-						const bool nameChanged = (S_mac_last_logged_divider_name != name);
-						S_mac_selected_divider_full_name = name;
-						S_mac_selected_divider_valid = true;
-						S_mac_selected_divider_cached_at = CFAbsoluteTimeGetCurrent();
-						if (nameChanged) {
-							S_mac_last_logged_divider_name = name;
-						}
-						pthread_mutex_unlock(&S_mac_state_mutex);
-
-						if (nameChanged) {
-							char msg[512];
-							sprintf(msg, "FoldLayers: Cached divider '%s'", name.c_str());
-							suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
-						}
-					}
-				}
-			}
-			suites.CollectionSuite2()->AEGP_DisposeCollection(collectionH);
-		}
-	}
 
 	// Install event tap (may fail if Accessibility permissions not granted)
 	InstallMacEventTap();
@@ -1455,34 +1416,10 @@ static A_Err IdleHook(
 			sprintf(msg, "FoldLayers: AX trusted=%d", axTrusted);
 			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
 
-			// CRITICAL FIX: Read S_mac_ax_hit_test_usable with mutex protection
-			pthread_mutex_lock(&S_mac_state_mutex);
-			const bool axHitTestUsable = S_mac_ax_hit_test_usable;
-			pthread_mutex_unlock(&S_mac_state_mutex);
-
-			sprintf(msg, "FoldLayers: AX hit test usable=%d", axHitTestUsable);
-			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
-
-			if (axTrusted && axHitTestUsable) {
-				// Final gate: only toggle when the double-click happened on the selected divider row.
-				CGEventRef ev = CGEventCreate(NULL);
-				if (ev) {
-					const CGPoint loc = CGEventGetLocation(ev);
-					CFRelease(ev);
-					sprintf(msg, "FoldLayers: Hit test at (%.0f, %.0f)", loc.x, loc.y);
-					suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
-					if (MacHitTestLooksLikeSelectedDivider(loc)) {
-						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Hit test PASSED - Folding!");
-						DoFoldUnfold(suites);
-					} else {
-						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Hit test FAILED");
-					}
-				}
-			} else {
-				// No Accessibility permission OR hit-test is unusable: allow selection-based toggle.
-				suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Selection-based toggle");
-				DoFoldUnfold(suites);
-			}
+			// Simplified approach: Use selection-based toggle (same as Windows)
+			// Hit testing is unreliable in After Effects timeline panel
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Selection-based toggle - Folding!");
+			DoFoldUnfold(suites);
         } else {
 			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: No divider selected - ignoring");
 		}

@@ -187,45 +187,16 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 		const int64_t clickState = CGEventGetIntegerValueField(event, kCGMouseEventClickState);
 		pthread_mutex_lock(&S_mac_state_mutex);
 		const bool selected = S_mac_divider_selected_for_input;
-		const bool cachedValid = S_mac_selected_divider_valid;
-		const double cachedAt = S_mac_selected_divider_cached_at;
 		pthread_mutex_unlock(&S_mac_state_mutex);
 
-		DEBUG_LOG("EventTap: LeftMouseDown clickState=%lld selected=%d cachedValid=%d",
-			clickState, selected, cachedValid);
+		DEBUG_LOG("EventTap: LeftMouseDown clickState=%lld selected=%d",
+			clickState, selected);
 
-		// Only act on true double-click.
-		if (clickState == 2 && (selected || cachedValid)) {
-			// If cache is very stale, don't risk false positives.
-			if (cachedAt > 0.0) {
-				const double now = CFAbsoluteTimeGetCurrent();
-				const double age = now - cachedAt;
-				if (age < 0.0 || age > 2.0) {
-					DEBUG_LOG("EventTap: Cache too stale (%.2fs), ignoring", age);
-					return event;
-				}
-			}
-
-			const CGPoint loc = CGEventGetLocation(event);
-			const bool axTrusted = MacAXTrusted();
-			if (!axTrusted) {
-				DEBUG_LOG("EventTap: AX not trusted, allowing selection-based fold");
-				pthread_mutex_lock(&S_mac_state_mutex);
-				S_mac_should_warn_ax = true;
-				pthread_mutex_unlock(&S_mac_state_mutex);
-
-				S_pending_fold_action = true;
-				return NULL;
-			}
-
-			DEBUG_LOG("EventTap: AX trusted, performing hit test at (%.1f, %.1f)", loc.x, loc.y);
-			if (!S_mac_ax_hit_test_usable || MacHitTestLooksLikeSelectedDivider(loc)) {
-				DEBUG_LOG("EventTap: Hit test passed! Setting pending fold action");
-				S_pending_fold_action = true;
-				return NULL;
-			} else {
-				DEBUG_LOG("EventTap: Hit test FAILED, not folding");
-			}
+		// Only act on true double-click when a divider is selected
+		if (clickState == 2 && selected) {
+			DEBUG_LOG("EventTap: Double-click on selected divider - setting pending fold action");
+			S_pending_fold_action = true;
+			return NULL;  // Suppress the event
 		}
 	}
 
