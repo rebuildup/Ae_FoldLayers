@@ -18,7 +18,19 @@
 #define FOLDLAYERS_DEBUG_MAC 1
 
 #if FOLDLAYERS_DEBUG_MAC
-#define DEBUG_LOG(fmt, ...) fprintf(stderr, "[FoldLayers] " fmt "\n", ##__VA_ARGS__)
+// File-based logging for MacEventTap (since stderr isn't visible in AE)
+static void DebugLog(const char* fmt, ...) {
+	FILE* f = fopen("/tmp/foldlayers_debug.log", "a");
+	if (f) {
+		va_list args;
+		va_start(args, fmt);
+		vfprintf(f, fmt, args);
+		va_end(args);
+		fprintf(f, "\n");
+		fclose(f);
+	}
+}
+#define DEBUG_LOG(fmt, ...) DebugLog("[FoldLayers] " fmt, ##__VA_ARGS__)
 #else
 #define DEBUG_LOG(fmt, ...) do {} while(0)
 #endif

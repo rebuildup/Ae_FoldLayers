@@ -1393,12 +1393,14 @@ static A_Err IdleHook(
 	static A_long s_last_selected_count = 0;
 	static A_long s_log_counter = 0;
 	if ((s_log_counter++ % 60) == 0) {
-		fprintf(stderr, "[FoldLayers] IdleHook: dividerSelected=%d\n", dividerSelected);
+		char msg[256];
+		sprintf(msg, "FoldLayers: IdleHook dividerSelected=%d", dividerSelected);
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
 	}
 	if (dividerSelected && s_last_selected_count == 0) {
-		fprintf(stderr, "[FoldLayers] Divider SELECTION state changed to: SELECTED\n");
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider SELECTED");
 	} else if (!dividerSelected && s_last_selected_count > 0) {
-		fprintf(stderr, "[FoldLayers] Divider SELECTION state changed to: DESELECTED\n");
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider DESELECTED");
 	}
 	s_last_selected_count = dividerSelected ? 1 : 0;
 
@@ -1419,7 +1421,9 @@ static A_Err IdleHook(
 						S_mac_selected_divider_valid = true;
 						S_mac_selected_divider_cached_at = CFAbsoluteTimeGetCurrent();
 						pthread_mutex_unlock(&S_mac_state_mutex);
-						fprintf(stderr, "[FoldLayers] Cached divider name: %s\n", name.c_str());
+						char msg[512];
+						sprintf(msg, "FoldLayers: Cached divider '%s'", name.c_str());
+						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
 					}
 				}
 			}
@@ -1436,17 +1440,22 @@ static A_Err IdleHook(
 
 	// Process pending fold action from double-click
 	if (S_pending_fold_action) {
-		fprintf(stderr, "[FoldLayers] PENDING FOLD ACTION detected! dividerSelected=%d\n", dividerSelected);
+		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: DOUBLE-CLICK DETECTED!");
 		S_pending_fold_action = false;
 
 		if (dividerSelected) {
 			const bool axTrusted = MacAXTrusted();
-			fprintf(stderr, "[FoldLayers] AX trusted: %d\n", axTrusted);
+			char msg[256];
+			sprintf(msg, "FoldLayers: AX trusted=%d", axTrusted);
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
+
 			// CRITICAL FIX: Read S_mac_ax_hit_test_usable with mutex protection
 			pthread_mutex_lock(&S_mac_state_mutex);
 			const bool axHitTestUsable = S_mac_ax_hit_test_usable;
 			pthread_mutex_unlock(&S_mac_state_mutex);
-			fprintf(stderr, "[FoldLayers] AX hit test usable: %d\n", axHitTestUsable);
+
+			sprintf(msg, "FoldLayers: AX hit test usable=%d", axHitTestUsable);
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
 
 			if (axTrusted && axHitTestUsable) {
 				// Final gate: only toggle when the double-click happened on the selected divider row.
@@ -1454,21 +1463,22 @@ static A_Err IdleHook(
 				if (ev) {
 					const CGPoint loc = CGEventGetLocation(ev);
 					CFRelease(ev);
-					fprintf(stderr, "[FoldLayers] Performing hit test at (%.1f, %.1f)\n", loc.x, loc.y);
+					sprintf(msg, "FoldLayers: Hit test at (%.0f, %.0f)", loc.x, loc.y);
+					suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
 					if (MacHitTestLooksLikeSelectedDivider(loc)) {
-						fprintf(stderr, "[FoldLayers] Hit test PASSED! Calling DoFoldUnfold()\n");
+						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Hit test PASSED - Folding!");
 						DoFoldUnfold(suites);
 					} else {
-						fprintf(stderr, "[FoldLayers] Hit test FAILED - not folding\n");
+						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Hit test FAILED");
 					}
 				}
 			} else {
 				// No Accessibility permission OR hit-test is unusable: allow selection-based toggle.
-				fprintf(stderr, "[FoldLayers] Selection-based toggle (no AX or hit-test unusable)\n");
+				suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Selection-based toggle");
 				DoFoldUnfold(suites);
 			}
         } else {
-			fprintf(stderr, "[FoldLayers] No divider selected, ignoring fold action\n");
+			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: No divider selected - ignoring");
 		}
     }
 
