@@ -46,25 +46,10 @@ pthread_mutex_t		S_mac_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool			S_last_mouse_down = false;
 static double		S_last_click_time = 0.0;
 bool				S_mac_divider_selected_for_input = false;
-std::string			S_mac_selected_divider_full_name;
-bool				S_mac_selected_divider_valid = false;
-double				S_mac_selected_divider_cached_at = 0.0;
 bool				S_mac_should_warn_ax = false;
 bool				S_mac_warned_ax = false;
-bool				S_mac_ax_hit_test_usable = true;
 static bool			S_ax_trusted = false;
 static bool			S_ax_trusted_checked = false;
-std::string			S_mac_last_logged_divider_name;  // Track last logged divider to avoid spam
-
-static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullName)
-{
-	if (!s) return false;
-	char buf[2048];
-	if (!CFStringGetCString(s, buf, (CFIndex)sizeof(buf), kCFStringEncodingUTF8)) return false;
-	const std::string hay(buf);
-	if (!fullName.empty() && hay.find(fullName) != std::string::npos) return true;
-	return false;
-}
 
 bool MacAXTrusted()
 {
@@ -101,71 +86,6 @@ bool MacAXTrusted()
 		}
 	}
 	return S_ax_trusted;
-}
-
-bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos)
-{
-	std::string fullName;
-	pthread_mutex_lock(&S_mac_state_mutex);
-	const bool valid = S_mac_selected_divider_valid;
-	const double cachedAt = S_mac_selected_divider_cached_at;
-	if (valid) {
-		fullName = S_mac_selected_divider_full_name;
-	}
-	pthread_mutex_unlock(&S_mac_state_mutex);
-	if (!valid) return false;
-	// Avoid stale matches if selection changed long ago.
-	if (cachedAt > 0.0) {
-		const double now = CFAbsoluteTimeGetCurrent();
-		const double age = now - cachedAt;
-		if (age < 0.0 || age > 2.0) return false;
-	}
-	if (fullName.empty()) return false;
-
-	AXUIElementRef systemWide = AXUIElementCreateSystemWide();
-	if (!systemWide) return false;
-
-	AXUIElementRef hit = NULL;
-	AXError axErr = AXUIElementCopyElementAtPosition(systemWide, globalPos.x, globalPos.y, &hit);
-	CFRelease(systemWide);
-	if (axErr != kAXErrorSuccess || !hit) {
-		S_mac_ax_hit_test_usable = false;
-		return false;
-	}
-	S_mac_ax_hit_test_usable = true;
-
-	CFTypeRef titleV = NULL;
-	if (AXUIElementCopyAttributeValue(hit, kAXTitleAttribute, &titleV) == kAXErrorSuccess && titleV) {
-		if (CFGetTypeID(titleV) == CFStringGetTypeID() && CFStringContainsDividerName((CFStringRef)titleV, fullName)) {
-			CFRelease(titleV);
-			CFRelease(hit);
-			return true;
-		}
-		CFRelease(titleV);
-	}
-
-	CFTypeRef valueV = NULL;
-	if (AXUIElementCopyAttributeValue(hit, kAXValueAttribute, &valueV) == kAXErrorSuccess && valueV) {
-		if (CFGetTypeID(valueV) == CFStringGetTypeID() && CFStringContainsDividerName((CFStringRef)valueV, fullName)) {
-			CFRelease(valueV);
-			CFRelease(hit);
-			return true;
-		}
-		CFRelease(valueV);
-	}
-
-	CFTypeRef descV = NULL;
-	if (AXUIElementCopyAttributeValue(hit, kAXDescriptionAttribute, &descV) == kAXErrorSuccess && descV) {
-		if (CFGetTypeID(descV) == CFStringGetTypeID() && CFStringContainsDividerName((CFStringRef)descV, fullName)) {
-			CFRelease(descV);
-			CFRelease(hit);
-			return true;
-		}
-		CFRelease(descV);
-	}
-
-	CFRelease(hit);
-	return false;
 }
 
 static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void* refcon)

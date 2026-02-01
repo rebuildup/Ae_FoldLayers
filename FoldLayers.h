@@ -223,13 +223,8 @@ A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites);
 	extern bool				S_event_tap_active;
 	extern pthread_mutex_t	S_mac_state_mutex;
 	extern bool				S_mac_divider_selected_for_input;
-	extern std::string		S_mac_selected_divider_full_name;
-	extern bool				S_mac_selected_divider_valid;
-	extern double			S_mac_selected_divider_cached_at;
 	extern bool				S_mac_should_warn_ax;
 	extern bool				S_mac_warned_ax;
-	extern bool				S_mac_ax_hit_test_usable;
-	extern std::string		S_mac_last_logged_divider_name;  // Track last logged divider to avoid spam
 
 	// Install macOS event tap
 	void InstallMacEventTap();
@@ -239,9 +234,6 @@ A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites);
 
 	// Check Accessibility trust
 	bool MacAXTrusted();
-
-	// Hit test for selected divider
-	bool MacHitTestLooksLikeSelectedDivider(CGPoint globalPos);
 #endif
 
 //=============================================================================
