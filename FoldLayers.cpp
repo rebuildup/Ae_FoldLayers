@@ -1389,15 +1389,6 @@ static A_Err IdleHook(
 	S_mac_divider_selected_for_input = dividerSelected;
 	pthread_mutex_unlock(&S_mac_state_mutex);
 
-	// Debug: Log selection state changes (only when state actually changes)
-	static A_long s_last_selected_count = -1;  // Initialize to -1 so first state is logged
-	if (dividerSelected && s_last_selected_count != 1) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider SELECTED");
-	} else if (!dividerSelected && s_last_selected_count == 1) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider DESELECTED");
-	}
-	s_last_selected_count = dividerSelected ? 1 : 0;
-
 	// Install event tap (may fail if Accessibility permissions not granted)
 	InstallMacEventTap();
 
@@ -1407,34 +1398,13 @@ static A_Err IdleHook(
 
 	// Process pending fold action from double-click
 	if (S_pending_fold_action) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: DOUBLE-CLICK DETECTED!");
 		S_pending_fold_action = false;
 
 		if (dividerSelected) {
-			const bool axTrusted = MacAXTrusted();
-			char msg[256];
-			sprintf(msg, "FoldLayers: AX trusted=%d", axTrusted);
-			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
-
-			// Simplified approach: Use selection-based toggle (same as Windows)
-			// Hit testing is unreliable in After Effects timeline panel
-			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Selection-based toggle - Folding!");
 			DoFoldUnfold(suites);
-        } else {
-			suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: No divider selected - ignoring");
 		}
     }
 
-	// One-time guidance if we're running without Accessibility trust.
-	pthread_mutex_lock(&S_mac_state_mutex);
-	const bool shouldWarnAx = S_mac_should_warn_ax && !S_mac_warned_ax;
-	if (shouldWarnAx) S_mac_warned_ax = true;
-	pthread_mutex_unlock(&S_mac_state_mutex);
-	if (shouldWarnAx) {
-		suites.UtilitySuite6()->AEGP_ReportInfo(
-			S_my_id,
-			"FoldLayers: For accurate double-click hit-testing on Mac, enable After Effects in System Settings > Privacy & Security > Accessibility. (Without it, FoldLayers falls back to selection-only behavior.)");
-	}
 #endif
 
 	*max_sleepPL = 50;

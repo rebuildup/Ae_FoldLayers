@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 // Enable debug logging (set to 0 to disable in production)
-#define FOLDLAYERS_DEBUG_MAC 1
+#define FOLDLAYERS_DEBUG_MAC 0
 
 #if FOLDLAYERS_DEBUG_MAC
 // File-based logging for MacEventTap (since stderr isn't visible in AE)
