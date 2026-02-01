@@ -43,8 +43,8 @@ bool				S_event_tap_active = false;
 pthread_mutex_t		S_mac_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Static state for polling fallback
-static bool			S_last_mouse_down = false;
 static double		S_last_click_time = 0.0;
+static double		S_last_event_timestamp = 0.0;
 bool				S_mac_divider_selected_for_input = false;
 bool				S_mac_should_warn_ax = false;
 bool				S_mac_warned_ax = false;
@@ -114,9 +114,23 @@ static CGEventRef EventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
 
 		// Only act on true double-click when a divider is selected
 		if (clickState == 2 && selected) {
-			DEBUG_LOG("EventTap: Double-click on selected divider - setting pending fold action");
-			S_pending_fold_action = true;
-			return NULL;  // Suppress the event
+			// Check cooldown to prevent double-triggering from both mechanisms
+			const double now = CFAbsoluteTimeGetCurrent();
+			pthread_mutex_lock(&S_mac_state_mutex);
+			const double timeSinceLastAction = now - S_last_event_timestamp;
+			pthread_mutex_unlock(&S_mac_state_mutex);
+
+			// Only process if enough time has passed since last action (0.2s cooldown)
+			if (timeSinceLastAction > 0.2) {
+				DEBUG_LOG("EventTap: Double-click on selected divider - setting pending fold action");
+				pthread_mutex_lock(&S_mac_state_mutex);
+				S_last_event_timestamp = now;
+				pthread_mutex_unlock(&S_mac_state_mutex);
+				S_pending_fold_action = true;
+				return NULL;  // Suppress the event
+			} else {
+				DEBUG_LOG("EventTap: Double-click ignored due to cooldown (%.2fs since last action)", timeSinceLastAction);
+			}
 		}
 	}
 
@@ -184,40 +198,53 @@ void PollMouseState()
 		return;  // No divider selected, skip double-click detection
 	}
 
-	// CRITICAL: Do NOT check S_event_tap_active here.
-	// Even when the event tap is active, it may fail to suppress events
-	// (e.g., due to permissions issues or macOS changes). The polling
-	// fallback ensures double-click detection still works in those cases.
-	// The polling uses button state transitions to detect clicks even
-	// while the mouse button is held down between double-clicks.
+	// CRITICAL: Use event timing detection instead of button state
+	// CGEventSourceButtonState only gives physical button state, which doesn't
+	// reliably detect the second click of a double-click (button is still held down).
+	// Instead, measure the time since the last left mouse down event.
+	const double since = CGEventSourceSecondsSinceLastEventType(
+		kCGEventSourceStateCombinedSessionState,
+		kCGEventLeftMouseDown);
 
-	// Use button state detection to catch clicks even while button is held down
-	const bool isDown = CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, kCGMouseButtonLeft);
+	// Check for valid result
+	if (!(since >= 0.0)) {
+		return;
+	}
+
+	const double now = CFAbsoluteTimeGetCurrent();
+	const double event_ts = now - since;
+
+	// Detect a new mouse down event (with some tolerance for timing variations)
+	if (event_ts > S_last_click_time + 0.01) {
+		const double diff = event_ts - S_last_click_time;
+		S_last_click_time = event_ts;
 
 #if FOLDLAYERS_DEBUG_MAC
-	static int pollCount = 0;
-	if ((pollCount++ % 60) == 0) {
-		DEBUG_LOG("PollMouseState: isDown=%d, last_down=%d, selected=%d",
-			isDown, S_last_mouse_down, dividerSelected);
-	}
+		DEBUG_LOG("PollMouseState: click detected, diff=%.3f seconds", diff);
 #endif
 
-	if (isDown && !S_last_mouse_down) {
-		// Transition from up to down - new click detected
-		const double now = CFAbsoluteTimeGetCurrent();
-		const double diff = now - S_last_click_time;
-		S_last_click_time = now;
+		// Double click threshold (0.03s to 0.7s)
+		// - Minimum: 30ms to avoid false positives from very rapid clicks
+		// - Maximum: 700ms to accommodate macOS system double-click setting (default 500ms)
+		if (diff > 0.03 && diff < 0.7) {
+			// Check cooldown to prevent double-triggering from both mechanisms
+			pthread_mutex_lock(&S_mac_state_mutex);
+			const double timeSinceLastAction = now - S_last_event_timestamp;
+			pthread_mutex_unlock(&S_mac_state_mutex);
 
-		DEBUG_LOG("CLICK DETECTED: diff=%.3f seconds", diff);
-
-		// Double click threshold (0.05s to 0.5s)
-		if (diff > 0.05 && diff < 0.5) {
-			DEBUG_LOG("DOUBLE-CLICK DETECTED! Setting pending fold action");
-			S_pending_fold_action = true;
-			S_last_click_time = 0.0; // Prevent consecutive triggering
+			// Only process if enough time has passed since last action (0.2s cooldown)
+			if (timeSinceLastAction > 0.2) {
+#if FOLDLAYERS_DEBUG_MAC
+				DEBUG_LOG("PollMouseState: DOUBLE-CLICK DETECTED!");
+#endif
+				pthread_mutex_lock(&S_mac_state_mutex);
+				S_last_event_timestamp = now;
+				pthread_mutex_unlock(&S_mac_state_mutex);
+				S_pending_fold_action = true;
+				S_last_click_time = 0.0;  // Prevent consecutive triggering
+			}
 		}
 	}
-	S_last_mouse_down = isDown;
 }
 
 void InitMacEventTap()
