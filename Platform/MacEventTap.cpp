@@ -54,6 +54,7 @@ bool				S_mac_warned_ax = false;
 bool				S_mac_ax_hit_test_usable = true;
 static bool			S_ax_trusted = false;
 static bool			S_ax_trusted_checked = false;
+std::string			S_mac_last_logged_divider_name;  // Track last logged divider to avoid spam
 
 static bool CFStringContainsDividerName(CFStringRef s, const std::string& fullName)
 {

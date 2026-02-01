@@ -229,6 +229,7 @@ A_Err EnsureShyModeEnabled(AEGP_SuiteHandler& suites);
 	extern bool				S_mac_should_warn_ax;
 	extern bool				S_mac_warned_ax;
 	extern bool				S_mac_ax_hit_test_usable;
+	extern std::string		S_mac_last_logged_divider_name;  // Track last logged divider to avoid spam
 
 	// Install macOS event tap
 	void InstallMacEventTap();

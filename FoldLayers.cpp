@@ -1389,18 +1389,16 @@ static A_Err IdleHook(
 	S_mac_divider_selected_for_input = dividerSelected;
 	pthread_mutex_unlock(&S_mac_state_mutex);
 
-	// Debug: Log selection state changes
-	static A_long s_last_selected_count = 0;
-	static A_long s_log_counter = 0;
-	if ((s_log_counter++ % 60) == 0) {
-		char msg[256];
-		sprintf(msg, "FoldLayers: IdleHook dividerSelected=%d", dividerSelected);
-		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
-	}
-	if (dividerSelected && s_last_selected_count == 0) {
+	// Debug: Log selection state changes (only when state actually changes)
+	static A_long s_last_selected_count = -1;  // Initialize to -1 so first state is logged
+	if (dividerSelected && s_last_selected_count != 1) {
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider SELECTED");
-	} else if (!dividerSelected && s_last_selected_count > 0) {
+	} else if (!dividerSelected && s_last_selected_count == 1) {
 		suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, "FoldLayers: Divider DESELECTED");
+		// Clear cached divider name when deselected
+		pthread_mutex_lock(&S_mac_state_mutex);
+		S_mac_last_logged_divider_name.clear();
+		pthread_mutex_unlock(&S_mac_state_mutex);
 	}
 	s_last_selected_count = dividerSelected ? 1 : 0;
 
@@ -1416,14 +1414,22 @@ static A_Err IdleHook(
 					std::string name;
 					if (GetLayerNameStr(suites, item.u.layer.layerH, name) == A_Err_NONE &&
 						IsDividerLayerWithKnownName(suites, item.u.layer.layerH, name)) {
+						// Only log when the divider name actually changes
 						pthread_mutex_lock(&S_mac_state_mutex);
+						const bool nameChanged = (S_mac_last_logged_divider_name != name);
 						S_mac_selected_divider_full_name = name;
 						S_mac_selected_divider_valid = true;
 						S_mac_selected_divider_cached_at = CFAbsoluteTimeGetCurrent();
+						if (nameChanged) {
+							S_mac_last_logged_divider_name = name;
+						}
 						pthread_mutex_unlock(&S_mac_state_mutex);
-						char msg[512];
-						sprintf(msg, "FoldLayers: Cached divider '%s'", name.c_str());
-						suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
+
+						if (nameChanged) {
+							char msg[512];
+							sprintf(msg, "FoldLayers: Cached divider '%s'", name.c_str());
+							suites.UtilitySuite6()->AEGP_ReportInfo(S_my_id, msg);
+						}
 					}
 				}
 			}
