@@ -1,3 +1,7 @@
 docs/reference/Ae_MultiSlicer/*
 .git_corrupt_*/
 assets/Adobe After Effects Auto-Save
+# XcodeGen generated macOS build state
+/FoldLayers.xcodeproj/
+/build/
+/.env.local
