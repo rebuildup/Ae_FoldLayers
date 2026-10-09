@@ -158,10 +158,12 @@ void InstallMacEventTap()
 	}
 
 	CGEventMask mask = CGEventMaskBit(kCGEventLeftMouseDown);
+	// The third argument is CGEventTapOptions. A literal 0 does not implicitly
+	// convert in C++, so name the default option explicitly.
 	S_event_tap = CGEventTapCreate(
 		kCGSessionEventTap,
 		kCGHeadInsertEventTap,
-		0,
+		kCGEventTapOptionDefault,
 		mask,
 		EventTapCallback,
 		NULL);
